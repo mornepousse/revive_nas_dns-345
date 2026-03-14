@@ -1,0 +1,7 @@
+# Binary images (too large for git, download them instead)
+boot/uImage-ts419
+boot/zImage-*
+boot/uInitrd
+
+# U-Boot NAND dumps (contain device-specific data)
+uboot/*.bin

@@ -1,0 +1,4 @@
+Port 22
+HostKey /tmp/ssh_host_rsa_key
+PermitRootLogin yes
+PasswordAuthentication yes
