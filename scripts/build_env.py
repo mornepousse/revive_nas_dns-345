@@ -9,8 +9,8 @@ import binascii
 
 # Environment variables
 env_vars = [
-    "bootargs=console=ttyS0,115200 root=/dev/sda2 rootdelay=10",
-    "bootcmd=ide reset; ext2load ide 0:2 0xa00000 /boot/uImage; ext2load ide 0:2 0xf00000 /boot/uInitrd; bootm 0xa00000 0xf00000",
+    "bootargs=console=ttyS0,115200 root=/dev/sda1 rootdelay=10",
+    "bootcmd=nand read.e 0x800000 0x100000 0x600000; bootm 0x800000",
     "bootdelay=3",
     "baudrate=115200",
     "ethact=egiga0",

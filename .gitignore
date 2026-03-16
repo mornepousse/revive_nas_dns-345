@@ -5,3 +5,6 @@ boot/uInitrd
 
 # U-Boot NAND dumps (contain device-specific data)
 uboot/*.bin
+
+# Debian rootfs tarball (~250MB)
+backup/

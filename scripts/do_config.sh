@@ -1,10 +1,10 @@
 #!/bin/sh
 # Configure Debian rootfs for DNS-345
+# Run from the stock firmware shell after extracting rootfs to /mnt/debian
 
 # fstab
 cat > /mnt/debian/etc/fstab << 'EOF'
-/dev/sda2    /        ext3   defaults,noatime   0  1
-/dev/sda1    none     swap   sw                 0  0
+/dev/sda1    /        ext3   defaults,noatime   0  1
 tmpfs        /tmp     tmpfs  defaults           0  0
 EOF
 
@@ -21,8 +21,8 @@ EOF
 echo dns345 > /mnt/debian/etc/hostname
 echo "127.0.0.1 localhost dns345" > /mnt/debian/etc/hosts
 
-# Root password: set to 124643837
-sed -i 's|^root:[^:]*:|root:$6$wAeVvleiSqOBE/Di$SpuxzQRnnVRTFCZfxqjBnNaHJvaVP4/7ZVgnq0TFDL3pWT.H9HVwbr/ITiOCcIzHCzxaZzvHY0pmJ72JxOQav.:|' /mnt/debian/etc/shadow
+# Root password: set your own via chroot
+chroot /mnt/debian passwd root
 
 # Enable serial console
 mkdir -p /mnt/debian/etc/systemd/system/serial-getty@ttyS0.service.d
