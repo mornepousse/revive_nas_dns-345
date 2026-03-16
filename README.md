@@ -24,6 +24,7 @@ This guide covers the complete process, including the solution to the undocument
   - [Phase 10: Automatic Boot](#phase-10-automatic-boot-patch-u-boot)
   - [Phase 11: RAID 5](#phase-11-raid-5-optional)
   - [Phase 12: Samba SMB2/3](#phase-12-samba-smb23)
+  - [Phase 13: Security Hardening](#phase-13-security-hardening)
 - [Brick Recovery](#brick-recovery)
 - [U-Boot Binary Reference](#u-boot-binary-reference)
 - [Troubleshooting](#troubleshooting)
@@ -672,6 +673,48 @@ EOF
 
 Access from any machine: `smb://192.168.1.116/data` (or `\\192.168.1.116\data` on Windows)
 
+### Phase 13: Security Hardening
+
+The default Debian install has several security issues. A hardening script is included:
+
+```bash
+scp scripts/harden.sh root@<nas-ip>:/tmp/
+ssh root@<nas-ip> "sh /tmp/harden.sh"
+```
+
+Or run it directly:
+```bash
+ssh root@<nas-ip> "sh -s" < scripts/harden.sh
+```
+
+#### What It Does
+
+| Measure | Before | After |
+|---------|--------|-------|
+| **rpcbind/rpc.statd** | Listening on all interfaces (port 111) | Disabled |
+| **SSH root login** | Password accepted | Key-only (`prohibit-password`) |
+| **SSH password auth** | Enabled (brute-force risk) | Disabled |
+| **Samba file access** | Runs as `root` | Runs as dedicated `nasdata` user |
+| **Firewall** | None (all ports open) | SSH, SMB, NTP, ping only — rest dropped |
+| **IPv6** | Enabled on all services | Disabled |
+
+> **Important:** Before running this script, make sure your SSH key is in `/root/.ssh/authorized_keys` on the NAS — password login will be disabled!
+
+#### Firewall Rules
+
+```
+ACCEPT  established/related connections
+ACCEPT  loopback (lo)
+ACCEPT  TCP 22   (SSH)
+ACCEPT  TCP 445  (SMB)
+ACCEPT  TCP 139  (NetBIOS/SMB)
+ACCEPT  UDP 123  (NTP)
+ACCEPT  ICMP     (ping)
+DROP    everything else
+```
+
+Rules are persisted in `/etc/iptables/rules.v4` and restored at boot via `/etc/network/if-pre-up.d/iptables`.
+
 ---
 
 ## Brick Recovery
@@ -967,6 +1010,7 @@ The Doozan kernel 6.5.7 works but is not the latest. Building a newer kernel req
 │   └── kirkwood-dns325.dtb            # Original DTB (PCI-E disabled) ✗
 ├── scripts/
 │   ├── patch_uboot.py                 # U-Boot patcher for automatic Debian boot
+│   ├── harden.sh                      # Security hardening (firewall, SSH, Samba)
 │   ├── build_env.py                   # U-Boot environment block builder
 │   ├── do_config.sh                   # Rootfs configuration script
 │   ├── do_extract.sh                  # Rootfs extraction script
