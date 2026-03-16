@@ -44,17 +44,22 @@ This guide replaces the entire OS with Debian Bookworm (kernel 6.5.7) while keep
          │ boots
          ▼
 ┌─────────────────────────────────────────┐
-│  USB Flash Drive (/dev/sde1)            │
-│  Debian Bookworm rootfs (ext3)          │
-│  kernel 6.5.7-kirkwood                  │
+│  SATA Disk 1 — /dev/sda                 │
+│  ┌──────────────┬───────────────────┐   │
+│  │  sda1 (4GB)   │  sda2 (927GB)    │   │
+│  │  rootfs ext3  │  RAID member     │   │
+│  └──────────────┴───────────────────┘   │
 └─────────────────────────────────────────┘
-         │ mounts
+         │ mounts RAID
          ▼
 ┌─────────────────────────────────────────┐
-│  4x SATA Disks — RAID 5 (mdadm)        │
-│  /dev/md0 → /srv/data                  │
-│  ~2.7TB usable (4x 1TB)                │
+│  RAID 5 (mdadm) — /dev/md0             │
+│  sda2 + sdb1 + sdc1 + sde1             │
+│  ~2.7TB usable → /srv/data             │
 └─────────────────────────────────────────┘
+
+  USB Flash Drive (/dev/sdd1, 4GB)
+  = backup rootfs (cold standby)
 ```
 
 ## Key Discoveries
@@ -152,32 +157,66 @@ nand write 0x800000 0x100000 0x5f2800
 
 > **Important:** Round the write size up to the next 2048-byte (NAND page) boundary.
 
-### Phase 5: Prepare Rootfs on USB Drive
+### Phase 5: Prepare Rootfs
 
+The final setup uses a 4GB partition on the first SATA disk for rootfs, with a USB flash drive as cold backup.
+
+#### 5.1 Partition the first disk
 ```bash
-# Format USB drive
-mkfs.ext3 -L rootfs /dev/sde1
+fdisk /dev/sda
+# o (new MBR table)
+# n → p → 1 → default → +4G    (rootfs)
+# n → p → 2 → default → default (RAID member)
+# w
+```
 
-# Mount and extract Debian
-mkdir -p /mnt/usb
-mount /dev/sde1 /mnt/usb
-cd /mnt/usb
+#### 5.2 Format and install rootfs on SATA
+```bash
+mkfs.ext3 -L rootfs /dev/sda1
+mkdir -p /mnt/rootfs
+mount /dev/sda1 /mnt/rootfs
+cd /mnt/rootfs
 tar xjf /path/to/Debian-*.tar.bz2
 
-# Configure fstab (use UUID for stability)
 cat > etc/fstab << 'EOF'
-/dev/sde1  /     ext3  defaults,noatime  0  1
-tmpfs      /tmp  tmpfs defaults          0  0
+/dev/sda1    /          ext3   defaults,noatime   0  1
+tmpfs        /tmp       tmpfs  defaults           0  0
+/dev/md0     /srv/data  ext4   defaults,noatime   0  2
 EOF
 
 echo "dns345" > etc/hostname
+
+# Auto-start networking
+cat > etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp
+EOF
 ```
+
+#### 5.3 Create USB backup rootfs
+```bash
+# Partition USB drive (4GB partition, not full size)
+fdisk /dev/sde  # or wherever the USB appears
+# o → n → p → 1 → default → +4G → w
+
+mkfs.ext3 -L rootfs-backup /dev/sde1
+mkdir -p /mnt/usb
+mount /dev/sde1 /mnt/usb
+rsync -aAXv --exclude='/mnt' --exclude='/proc' --exclude='/sys' \
+  --exclude='/dev' --exclude='/tmp' --exclude='/run' / /mnt/usb/
+mkdir -p /mnt/usb/{proc,sys,dev,tmp,run,mnt}
+```
+
+> If sda fails, boot from USB by changing U-Boot bootargs to `root=/dev/sdd1` (USB device name may vary).
 
 ### Phase 6: Boot Debian
 
 From U-Boot prompt:
 ```
-setenv bootargs 'root=/dev/sde1 rootdelay=10 console=ttyS0,115200'
+setenv bootargs 'root=/dev/sda1 rootdelay=10 console=ttyS0,115200'
 nand read.e 0x800000 0x100000 0x700000
 bootm 0x800000
 ```
@@ -186,10 +225,11 @@ First boot tasks:
 ```bash
 # Generate SSH host keys
 ssh-keygen -A
+update-rc.d ssh defaults
 /etc/init.d/ssh start
 
 # Set the date (no RTC)
-date -s "2026-03-13 12:00:00"
+date -s "2026-03-16 12:00:00"
 
 # Install packages
 apt update
@@ -198,28 +238,44 @@ apt install -y samba mdadm ntpdate fdisk
 
 ### Phase 7: RAID 5 Setup
 
-With rootfs on USB, all 4 SATA disks can be used for RAID 5 (~2.7TB usable):
+Rootfs is on sda1 (4GB). The remaining space on all 4 disks goes to RAID 5:
+- sda2 (927GB) + sdb1 (931GB) + sdc1 (931GB) + sde1 (931GB) → ~2.7TB usable
 
 ```bash
-# Partition all 4 disks (single partition each)
-for disk in sda sdb sdc sdd; do
+# Partition disks 2-4 (single partition each, full size)
+for disk in sdb sdc sdd; do
   echo -e "o\nn\np\n1\n\n\nw" | fdisk /dev/$disk
 done
+# Note: sda already has sda2 from Phase 5
 
-# Create RAID 5 array
+# Create RAID 5 array (4 members)
 mdadm --create /dev/md0 --level=5 --raid-devices=4 \
-  /dev/sda1 /dev/sdb1 /dev/sdc1 /dev/sdd1
+  /dev/sda2 /dev/sdb1 /dev/sdc1 /dev/sde1
 
-# Format and mount
-mkfs.ext4 /dev/md0
+# Format (can run while RAID syncs — sync takes ~7h on ARM)
+mkfs.ext4 -L data /dev/md0
+
+# Mount and save config
 mkdir -p /srv/data
 mount /dev/md0 /srv/data
-
-# Save RAID config
 mdadm --detail --scan >> /etc/mdadm/mdadm.conf
-
-# Add to fstab
 echo '/dev/md0  /srv/data  ext4  defaults,noatime  0  2' >> /etc/fstab
+```
+
+> **Note:** RAID sync takes ~7 hours on the Kirkwood CPU. You can use the array while it syncs.
+> Check progress: `cat /proc/mdstat`
+
+#### Disk failure recovery
+```bash
+# If a disk dies, RAID continues in degraded mode [UUU_]
+# Replace the failed disk, partition it, then:
+mdadm --add /dev/md0 /dev/sdX1
+# RAID rebuilds automatically
+
+# If sda (rootfs disk) dies:
+# 1. Boot from USB backup: root=/dev/sdd1 in U-Boot
+# 2. Replace sda, repartition (4GB + rest), copy rootfs back
+# 3. mdadm --add for the RAID partition
 ```
 
 ### Phase 8: Samba Configuration
@@ -246,8 +302,10 @@ cat > /etc/samba/smb.conf << 'EOF'
    directory mask = 0775
 EOF
 
-systemctl restart smbd
+/etc/init.d/smbd restart
 ```
+
+Access the share from any machine: `smb://192.168.1.116/data`
 
 ---
 
@@ -276,8 +334,29 @@ Currently: manual boot from U-Boot prompt is required at each power cycle.
 ## Known Issues
 
 - **PIN20 conflict:** The TS-419 DTB has a potential pin conflict between SATA and Ethernet. eth1 may not work (eth0 is fine).
-- **No RTC:** Clock resets to 1969 on every boot. Install `ntpdate` or `systemd-timesyncd` for automatic sync.
+- **No RTC:** Clock resets to 1969 on every boot. Install `ntpdate` and add to cron, or use `systemd-timesyncd`.
 - **Disk ordering:** Device names (sda/sdb/sdc/sdd) may change between reboots. Use UUIDs where possible.
+- **RAID member sizes differ:** sda2 is 927GB (4GB used for rootfs), other members are 931GB. RAID uses the smallest member size — negligible loss.
+- **SSH keys not generated on first boot:** Run `ssh-keygen -A` manually on first boot, then `update-rc.d ssh defaults` for auto-start.
+- **Network not auto-configured by default:** Doozan rootfs doesn't have `/etc/network/interfaces` configured. Must create it manually (see Phase 5).
+
+## Final Disk Layout
+
+```
+Disk      Partitions         Purpose
+────      ──────────         ───────
+sda       sda1 (4GB)         Debian rootfs (ext3, mounted /)
+          sda2 (927GB)       RAID 5 member
+sdb       sdb1 (931GB)       RAID 5 member
+sdc       sdc1 (931GB)       RAID 5 member
+sdd       USB flash (4GB)    Backup rootfs (cold standby)
+sde       sde1 (931GB)       RAID 5 member
+
+md0       RAID 5 (2.7TB)     Data volume (ext4, mounted /srv/data)
+```
+
+> **Note:** Disk names (sda/sdb/sdc/sdd/sde) may vary between boots depending on detection order.
+> The USB drive device name also varies. Use `lsblk` to identify devices after boot.
 
 ## Files in This Repo
 
