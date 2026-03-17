@@ -59,11 +59,13 @@ ORIGINAL_BOOTCMD = (
     "bootm 0xa00000 0xf00000"
 )
 
-# Replacement — reads Debian kernel from mtd1 (6MB), boots with SATA root
+# Replacement — reads Debian kernel (6MB, spans mtd1+mtd2) + initramfs from mtd2
+# Addresses: kernel→0x2000000, initramfs→0x4000000 (no overlap with 6MB kernel)
+# U-Boot treats bare numbers as hex, so no 0x prefix needed (saves chars)
 DEFAULT_BOOTCMD = (
-    "nand read.e 0x800000 0x100000 0x600000;"
-    "setenv bootargs root=/dev/sda1 rootdelay=10;"
-    "bootm 0x800000"
+    "nand read.e 2000000 100000 600000;"
+    "nand read.e 4000000 700000 100000;"
+    "bootm 2000000 4000000"
 )
 
 

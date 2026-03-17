@@ -1,0 +1,796 @@
+/*
+ * Device Tree Source for D-Link DNS-345
+ *
+ * Based on: kirkwood-ts419-6282.dtb (PCIe, pinctrl, RAM)
+ *         + kirkwood-dns325.dtb (NAND, GPIO LEDs/fan/buttons, LM75, poweroff)
+ *
+ * Hardware:
+ *   SoC: Marvell Kirkwood 88F6282 (ARMv5TE)
+ *   RAM: 512 MB DDR3
+ *   NAND: 128 MB (Samsung K9F1G08U0D or equivalent)
+ *   SATA: Marvell 88SX7042 via PCI-Express (4 ports)
+ *   Ethernet: 1x GbE (Marvell PHY)
+ *   I2C: LM75 temperature sensor @ 0x48
+ *   Fan: 2-speed GPIO fan (mpp45=high, mpp46=low)
+ *   Front panel: possible MCU on ttyS1 (unconfirmed)
+ *
+ * GPIO pin assignments marked with [DNS-325] are inherited from the
+ * 2-bay DNS-325 and may need adjustment for the 4-bay DNS-345.
+ * Test via TFTP before flashing to NAND!
+ *
+ * Author: revive_nas_dns-345 project
+ * License: GPL-2.0
+ */
+
+/dts-v1/;
+
+/ {
+	#address-cells = <0x01>;
+	#size-cells = <0x01>;
+	compatible = "dlink,dns-345", "dlink,dns-kirkwood",
+		     "marvell,kirkwood-88f6282", "marvell,kirkwood";
+	interrupt-parent = <&intc>;
+	model = "D-Link DNS-345 NAS";
+
+	cpus {
+		#address-cells = <0x01>;
+		#size-cells = <0x00>;
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "marvell,feroceon";
+			reg = <0x00>;
+			clocks = <&coreclk 0x01>, <&coreclk 0x03>, <&gateclk 0x0b>;
+			clock-names = "cpu_clk", "ddrclk", "powersave";
+		};
+	};
+
+	aliases {
+		gpio0 = &gpio0;
+		gpio1 = &gpio1;
+		i2c0 = &i2c0;
+	};
+
+	memory {
+		device_type = "memory";
+		reg = <0x00000000 0x20000000>; /* 512 MB — confirmed on DNS-345 */
+	};
+
+	chosen {
+		bootargs = "console=ttyS0,115200n8";
+		stdout-path = &uart0;
+	};
+
+	mbus@f1000000 {
+		compatible = "marvell,kirkwood-mbus", "simple-bus";
+		#address-cells = <0x02>;
+		#size-cells = <0x01>;
+		/* MBUS_ID(target, attr) = (target << 24) | (attr << 16) */
+		ranges = <0xf0010000 0x00 0xf1000000 0x100000
+			  0x012f0000 0x00 0xf4000000 0x10000
+			  0x03010000 0x00 0xf5000000 0x10000>;
+		controller = <&mbusc>;
+		pcie-mem-aperture = <0xe0000000 0x10000000>;
+		pcie-io-aperture  = <0xf2000000 0x00100000>;
+
+		/*
+		 * NAND Flash — 128 MB
+		 * From DNS-325 DTB (same SoC family, same NAND layout)
+		 * chip-delay = 35ns (conservative, DNS-325 value)
+		 */
+		nand@12f {
+			#address-cells = <0x01>;
+			#size-cells = <0x01>;
+			cle = <0x00>;
+			ale = <0x01>;
+			bank-width = <0x01>;
+			compatible = "marvell,orion-nand";
+			reg = <0x012f0000 0x00 0x400>;
+			chip-delay = <0x23>; /* 35ns */
+			clocks = <&gateclk 0x07>;
+			pinctrl-0 = <&pmx_nand>;
+			pinctrl-names = "default";
+			status = "okay";
+
+			/* Partition layout from /proc/mtd on DNS-345 */
+			partition@0 {
+				label = "u-boot";
+				reg = <0x0000000 0x0100000>; /* 1 MB */
+				read-only;
+			};
+			partition@100000 {
+				label = "uImage";
+				reg = <0x0100000 0x0500000>; /* 5 MB */
+			};
+			partition@600000 {
+				label = "ramdisk";
+				reg = <0x0600000 0x0500000>; /* 5 MB */
+			};
+			partition@b00000 {
+				label = "image";
+				reg = <0x0b00000 0x6600000>; /* 102 MB */
+			};
+			partition@7100000 {
+				label = "mini firmware";
+				reg = <0x7100000 0x0a00000>; /* 10 MB */
+			};
+			partition@7b00000 {
+				label = "config";
+				reg = <0x7b00000 0x0500000>; /* 5 MB */
+			};
+		};
+
+		sa_sram: sa-sram@301 {
+			compatible = "mmio-sram";
+			reg = <0x03010000 0x00 0x800>;
+			clocks = <&gateclk 0x11>;
+			#address-cells = <0x01>;
+			#size-cells = <0x01>;
+		};
+
+		/*
+		 * PCIe — from TS-419 DTB
+		 * CRITICAL: Must be enabled for Marvell 88SX7042 SATA controller
+		 * The DNS-325 DTB has PCIe DISABLED — that's why it can't see disks!
+		 */
+		pcie@82000000 {
+			compatible = "marvell,kirkwood-pcie";
+			status = "okay";
+			device_type = "pci";
+			#address-cells = <0x03>;
+			#size-cells = <0x02>;
+			bus-range = <0x00 0xff>;
+			ranges = <0x82000000 0x00 0x40000  0xf0010000 0x40000 0x00 0x2000
+				  0x82000000 0x00 0x44000  0xf0010000 0x44000 0x00 0x2000
+				  0x82000000 0x00 0x80000  0xf0010000 0x80000 0x00 0x2000
+				  0x82000000 0x01 0x00      0x04e80000 0x00    0x01 0x00
+				  0x81000000 0x01 0x00      0x04e00000 0x00    0x01 0x00
+				  0x82000000 0x02 0x00      0x04d80000 0x00    0x01 0x00
+				  0x81000000 0x02 0x00      0x04d00000 0x00    0x01 0x00>;
+
+			pcie@1,0 {
+				device_type = "pci";
+				assigned-addresses = <0x82000800 0x00 0x40000 0x00 0x2000>;
+				reg = <0x0800 0x00 0x00 0x00 0x00>;
+				#address-cells = <0x03>;
+				#size-cells = <0x02>;
+				#interrupt-cells = <0x01>;
+				ranges = <0x82000000 0x00 0x00 0x82000000 0x01 0x00 0x01 0x00
+					  0x81000000 0x00 0x00 0x81000000 0x01 0x00 0x01 0x00>;
+				bus-range = <0x00 0xff>;
+				interrupt-names = "intx", "error";
+				interrupts = <0x09>, <0x2c>;
+				interrupt-map-mask = <0x00 0x00 0x00 0x07>;
+				interrupt-map = <0x00 0x00 0x00 0x01 &pcie0_intc 0x00>,
+						<0x00 0x00 0x00 0x02 &pcie0_intc 0x01>,
+						<0x00 0x00 0x00 0x03 &pcie0_intc 0x02>,
+						<0x00 0x00 0x00 0x04 &pcie0_intc 0x03>;
+				marvell,pcie-port = <0x00>;
+				marvell,pcie-lane = <0x00>;
+				clocks = <&gateclk 0x02>;
+				status = "okay";
+
+				pcie0_intc: interrupt-controller {
+					interrupt-controller;
+					#interrupt-cells = <0x01>;
+				};
+			};
+
+			pcie@2,0 {
+				device_type = "pci";
+				assigned-addresses = <0x82001000 0x00 0x44000 0x00 0x2000>;
+				reg = <0x1000 0x00 0x00 0x00 0x00>;
+				#address-cells = <0x03>;
+				#size-cells = <0x02>;
+				#interrupt-cells = <0x01>;
+				ranges = <0x82000000 0x00 0x00 0x82000000 0x02 0x00 0x01 0x00
+					  0x81000000 0x00 0x00 0x81000000 0x02 0x00 0x01 0x00>;
+				bus-range = <0x00 0xff>;
+				interrupt-names = "intx", "error";
+				interrupts = <0x0a>, <0x2d>;
+				interrupt-map-mask = <0x00 0x00 0x00 0x07>;
+				interrupt-map = <0x00 0x00 0x00 0x01 &pcie1_intc 0x00>,
+						<0x00 0x00 0x00 0x02 &pcie1_intc 0x01>,
+						<0x00 0x00 0x00 0x03 &pcie1_intc 0x02>,
+						<0x00 0x00 0x00 0x04 &pcie1_intc 0x03>;
+				marvell,pcie-port = <0x01>;
+				marvell,pcie-lane = <0x00>;
+				clocks = <&gateclk 0x12>;
+				status = "okay";
+
+				pcie1_intc: interrupt-controller {
+					interrupt-controller;
+					#interrupt-cells = <0x01>;
+				};
+			};
+		};
+	};
+
+	ocp@f1000000 {
+		compatible = "simple-bus";
+		ranges = <0x00000000 0xf1000000 0x100000>;
+		#address-cells = <0x01>;
+		#size-cells = <0x01>;
+
+		pinctrl: pin-controller@10000 {
+			reg = <0x10000 0x20>;
+			compatible = "marvell,88f6282-pinctrl"; /* 88F6282 — NOT 88f6281! */
+
+			pmx_nand: pmx-nand {
+				marvell,pins = "mpp0", "mpp1", "mpp2", "mpp3",
+					       "mpp4", "mpp5", "mpp18", "mpp19";
+				marvell,function = "nand";
+			};
+
+			pmx_twsi0: pmx-twsi0 {
+				marvell,pins = "mpp8", "mpp9";
+				marvell,function = "twsi0";
+			};
+
+			pmx_uart0: pmx-uart0 {
+				marvell,pins = "mpp10", "mpp11";
+				marvell,function = "uart0";
+			};
+
+			pmx_uart1: pmx-uart1 {
+				marvell,pins = "mpp13", "mpp14";
+				marvell,function = "uart1";
+			};
+
+			/*
+			 * GPIO pins for LEDs — [DNS-325 values]
+			 * May need adjustment for DNS-345 (4-bay vs 2-bay)
+			 */
+			pmx_led_power: pmx-led-power {
+				marvell,pins = "mpp26";
+				marvell,function = "gpio";
+			};
+			pmx_led_red_r_hdd: pmx-led-red-right-hdd {
+				marvell,pins = "mpp27";
+				marvell,function = "gpio";
+			};
+			pmx_led_red_l_hdd: pmx-led-red-left-hdd {
+				marvell,pins = "mpp28";
+				marvell,function = "gpio";
+			};
+			pmx_led_red_usb: pmx-led-red-usb {
+				marvell,pins = "mpp29";
+				marvell,function = "gpio";
+			};
+
+			/* Buttons [DNS-325 values] */
+			pmx_btn_power: pmx-button-power {
+				marvell,pins = "mpp34";
+				marvell,function = "gpio";
+			};
+
+			/* Power control */
+			pmx_poweroff: pmx-power-off {
+				marvell,pins = "mpp36";
+				marvell,function = "gpio";
+			};
+			pmx_power_resume: pmx-power-back-on {
+				marvell,pins = "mpp37";
+				marvell,function = "gpio";
+			};
+
+			/* SATA power regulators [DNS-325 values] */
+			pmx_sata0_pwr: pmx-power-sata0 {
+				marvell,pins = "mpp39";
+				marvell,function = "gpio";
+			};
+			pmx_sata1_pwr: pmx-power-sata1 {
+				marvell,pins = "mpp40";
+				marvell,function = "gpio";
+			};
+
+			/* SATA presence detect [DNS-325 values] */
+			pmx_sata0_present: pmx-present-sata0 {
+				marvell,pins = "mpp41";
+				marvell,function = "gpio";
+			};
+			pmx_sata1_present: pmx-present-sata1 {
+				marvell,pins = "mpp42";
+				marvell,function = "gpio";
+			};
+
+			/* USB LED */
+			pmx_led_white_usb: pmx-led-white-usb {
+				marvell,pins = "mpp43";
+				marvell,function = "gpio";
+			};
+
+			/* Fan control [DNS-325 values — likely same for DNS-345] */
+			pmx_fan_tacho: pmx-fan-tacho {
+				marvell,pins = "mpp44";
+				marvell,function = "gpio";
+			};
+			pmx_fan_high: pmx-fan-high-speed {
+				marvell,pins = "mpp45";
+				marvell,function = "gpio";
+			};
+			pmx_fan_low: pmx-fan-low-speed {
+				marvell,pins = "mpp46";
+				marvell,function = "gpio";
+			};
+
+			/* More buttons [DNS-325 values] */
+			pmx_btn_unmount: pmx-button-unmount {
+				marvell,pins = "mpp47";
+				marvell,function = "gpio";
+			};
+			pmx_btn_reset: pmx-button-reset {
+				marvell,pins = "mpp48";
+				marvell,function = "gpio";
+			};
+
+			/* Temperature alarm interrupt from LM75 */
+			pmx_temp_alarm: pmx-temp-alarm {
+				marvell,pins = "mpp49";
+				marvell,function = "gpio";
+			};
+		};
+
+		coreclk: core-clocks@10030 {
+			compatible = "marvell,kirkwood-core-clock";
+			reg = <0x10030 0x04>;
+			#clock-cells = <0x01>;
+		};
+
+		/* SPI — disabled, DNS-345 uses NAND not SPI flash */
+		spi@10600 {
+			compatible = "marvell,orion-spi";
+			#address-cells = <0x01>;
+			#size-cells = <0x00>;
+			cell-index = <0x00>;
+			interrupts = <0x17>;
+			reg = <0x10600 0x28>;
+			clocks = <&gateclk 0x07>;
+			status = "disabled";
+		};
+
+		gpio0: gpio@10100 {
+			compatible = "marvell,orion-gpio";
+			#gpio-cells = <0x02>;
+			gpio-controller;
+			reg = <0x10100 0x40>;
+			ngpios = <0x20>;
+			interrupt-controller;
+			#interrupt-cells = <0x02>;
+			interrupts = <0x23>, <0x24>, <0x25>, <0x26>;
+			clocks = <&gateclk 0x07>;
+		};
+
+		gpio1: gpio@10140 {
+			compatible = "marvell,orion-gpio";
+			#gpio-cells = <0x02>;
+			gpio-controller;
+			reg = <0x10140 0x40>;
+			ngpios = <0x12>;
+			interrupt-controller;
+			#interrupt-cells = <0x02>;
+			interrupts = <0x27>, <0x28>, <0x29>;
+			clocks = <&gateclk 0x07>;
+		};
+
+		/*
+		 * I2C bus — LM75 temperature sensor confirmed at 0x48
+		 * Using 100kHz (safe for LM75)
+		 */
+		i2c0: i2c@11000 {
+			compatible = "marvell,mv64xxx-i2c";
+			reg = <0x11000 0x20>;
+			#address-cells = <0x01>;
+			#size-cells = <0x00>;
+			interrupts = <0x1d>;
+			clock-frequency = <0x186a0>; /* 100 kHz */
+			clocks = <&gateclk 0x07>;
+			pinctrl-0 = <&pmx_twsi0>;
+			pinctrl-names = "default";
+			status = "okay";
+
+			lm75@48 {
+				compatible = "national,lm75";
+				reg = <0x48>;
+			};
+		};
+
+		/* UART0 — console série (debug, 115200 baud) */
+		uart0: serial@12000 {
+			compatible = "ns16550a";
+			reg = <0x12000 0x100>;
+			reg-shift = <0x02>;
+			interrupts = <0x21>;
+			clocks = <&gateclk 0x07>;
+			pinctrl-0 = <&pmx_uart0>;
+			pinctrl-names = "default";
+			status = "okay";
+		};
+
+		/*
+		 * UART1 — possibly front panel MCU
+		 * Enabled for investigation (ttyS1)
+		 */
+		serial@12100 {
+			compatible = "ns16550a";
+			reg = <0x12100 0x100>;
+			reg-shift = <0x02>;
+			interrupts = <0x22>;
+			clocks = <&gateclk 0x07>;
+			pinctrl-0 = <&pmx_uart1>;
+			pinctrl-names = "default";
+			status = "okay";
+		};
+
+		mbusc: mbus-controller@20000 {
+			compatible = "marvell,mbus-controller";
+			reg = <0x20000 0x80>, <0x1500 0x20>;
+		};
+
+		system-controller@20000 {
+			compatible = "marvell,orion-system-controller";
+			reg = <0x20000 0x120>;
+		};
+
+		bridge_intc: bridge-interrupt-ctrl@20110 {
+			compatible = "marvell,orion-bridge-intc";
+			interrupt-controller;
+			#interrupt-cells = <0x01>;
+			reg = <0x20110 0x08>;
+			interrupts = <0x01>;
+			marvell,#interrupts = <0x06>;
+		};
+
+		gateclk: clock-gating-control@2011c {
+			compatible = "marvell,kirkwood-gating-clock";
+			reg = <0x2011c 0x04>;
+			clocks = <&coreclk 0x00>;
+			#clock-cells = <0x01>;
+		};
+
+		l2-cache@20128 {
+			compatible = "marvell,kirkwood-cache";
+			reg = <0x20128 0x04>;
+		};
+
+		intc: interrupt-controller@20200 {
+			compatible = "marvell,orion-intc";
+			interrupt-controller;
+			#interrupt-cells = <0x01>;
+			reg = <0x20200 0x10>, <0x20210 0x10>;
+		};
+
+		timer@20300 {
+			compatible = "marvell,orion-timer";
+			reg = <0x20300 0x20>;
+			interrupt-parent = <&bridge_intc>;
+			interrupts = <0x01>, <0x02>;
+			clocks = <&coreclk 0x00>;
+		};
+
+		watchdog-timer@20300 {
+			compatible = "marvell,orion-wdt";
+			reg = <0x20300 0x28>, <0x20108 0x04>;
+			interrupt-parent = <&bridge_intc>;
+			interrupts = <0x03>;
+			clocks = <&gateclk 0x07>;
+			status = "okay";
+		};
+
+		crypto@30000 {
+			compatible = "marvell,kirkwood-crypto";
+			reg = <0x30000 0x10000>;
+			reg-names = "regs";
+			interrupts = <0x16>;
+			clocks = <&gateclk 0x11>;
+			marvell,crypto-srams = <&sa_sram>;
+			marvell,crypto-sram-size = <0x800>;
+			status = "okay";
+		};
+
+		ehci@50000 {
+			compatible = "marvell,orion-ehci";
+			reg = <0x50000 0x1000>;
+			interrupts = <0x13>;
+			clocks = <&gateclk 0x03>;
+			status = "okay";
+		};
+
+		xor@60800 {
+			compatible = "marvell,orion-xor";
+			reg = <0x60800 0x100>, <0x60a00 0x100>;
+			status = "okay";
+			clocks = <&gateclk 0x08>;
+
+			xor00 {
+				interrupts = <0x05>;
+				dmacap,memcpy;
+				dmacap,xor;
+			};
+			xor01 {
+				interrupts = <0x06>;
+				dmacap,memcpy;
+				dmacap,xor;
+				dmacap,memset;
+			};
+		};
+
+		xor@60900 {
+			compatible = "marvell,orion-xor";
+			reg = <0x60900 0x100>, <0x60b00 0x100>;
+			status = "okay";
+			clocks = <&gateclk 0x10>;
+
+			xor00 {
+				interrupts = <0x07>;
+				dmacap,memcpy;
+				dmacap,xor;
+			};
+			xor01 {
+				interrupts = <0x08>;
+				dmacap,memcpy;
+				dmacap,xor;
+				dmacap,memset;
+			};
+		};
+
+		/* Ethernet — single GbE port */
+		ethernet-controller@72000 {
+			compatible = "marvell,kirkwood-eth";
+			#address-cells = <0x01>;
+			#size-cells = <0x00>;
+			reg = <0x72000 0x4000>;
+			clocks = <&gateclk 0x00>;
+			marvell,tx-checksum-limit = <0x640>;
+			status = "okay";
+
+			ethernet0-port@0 {
+				compatible = "marvell,kirkwood-eth-port";
+				reg = <0x00>;
+				interrupts = <0x0b>;
+				local-mac-address = [00 00 00 00 00 00];
+				phy-handle = <&ethphy0>;
+			};
+		};
+
+		mdio-bus@72004 {
+			compatible = "marvell,orion-mdio";
+			#address-cells = <0x01>;
+			#size-cells = <0x00>;
+			reg = <0x72004 0x84>;
+			interrupts = <0x2e>;
+			clocks = <&gateclk 0x00>;
+			status = "okay";
+
+			ethphy0: ethernet-phy@0 {
+				reg = <0x00>;
+			};
+		};
+
+		/* Second ethernet — disabled on DNS-345 (single-port NAS) */
+		ethernet-controller@76000 {
+			compatible = "marvell,kirkwood-eth";
+			#address-cells = <0x01>;
+			#size-cells = <0x00>;
+			reg = <0x76000 0x4000>;
+			clocks = <&gateclk 0x13>;
+			marvell,tx-checksum-limit = <0x640>;
+			status = "disabled";
+
+			ethernet1-port@0 {
+				compatible = "marvell,kirkwood-eth-port";
+				reg = <0x00>;
+				interrupts = <0x0f>;
+				local-mac-address = [00 00 00 00 00 00];
+			};
+		};
+
+		/* Integrated SATA PHYs + controller — hardware present on SoC */
+		sata_phy0: sata-phy@82000 {
+			compatible = "marvell,mvebu-sata-phy";
+			reg = <0x82000 0x334>;
+			clocks = <&gateclk 0x0e>;
+			clock-names = "sata";
+			#phy-cells = <0x00>;
+			status = "okay";
+		};
+
+		sata_phy1: sata-phy@84000 {
+			compatible = "marvell,mvebu-sata-phy";
+			reg = <0x84000 0x334>;
+			clocks = <&gateclk 0x0f>;
+			clock-names = "sata";
+			#phy-cells = <0x00>;
+			status = "okay";
+		};
+
+		sata@80000 {
+			compatible = "marvell,orion-sata";
+			reg = <0x80000 0x5000>;
+			interrupts = <0x15>;
+			clocks = <&gateclk 0x0e>, <&gateclk 0x0f>;
+			clock-names = "0", "1";
+			phys = <&sata_phy0>, <&sata_phy1>;
+			phy-names = "port0", "port1";
+			status = "okay";
+			nr-ports = <0x02>;
+		};
+
+		/* Thermal sensor (SoC internal) — from TS-419 DTB */
+		thermal@10078 {
+			compatible = "marvell,kirkwood-thermal";
+			reg = <0x10078 0x04>;
+			status = "okay";
+		};
+
+		/* RTC — internal, may not have battery backup */
+		rtc@10300 {
+			compatible = "marvell,kirkwood-rtc", "marvell,orion-rtc";
+			reg = <0x10300 0x20>;
+			interrupts = <0x35>;
+			clocks = <&gateclk 0x07>;
+		};
+
+		/* Audio — not used on NAS */
+		audio-controller@a0000 {
+			compatible = "marvell,kirkwood-audio";
+			#sound-dai-cells = <0x00>;
+			reg = <0xa0000 0x2210>;
+			interrupts = <0x18>;
+			clocks = <&gateclk 0x09>;
+			clock-names = "internal";
+			status = "disabled";
+		};
+
+		/* SDIO — not used */
+		mvsdio@90000 {
+			compatible = "marvell,orion-sdio";
+			reg = <0x90000 0x200>;
+			interrupts = <0x1c>;
+			clocks = <&gateclk 0x04>;
+			bus-width = <0x04>;
+			cap-sdio-irq;
+			cap-sd-highspeed;
+			cap-mmc-highspeed;
+			status = "disabled";
+		};
+	};
+
+	/*
+	 * GPIO keys — [DNS-325 pin assignments]
+	 * Power button:  mpp34 = gpio1 bit 2
+	 * Eject button:  mpp47 = gpio1 bit 15
+	 * Reset button:  mpp48 = gpio1 bit 16
+	 */
+	gpio_keys {
+		compatible = "gpio-keys";
+		#address-cells = <0x01>;
+		#size-cells = <0x00>;
+		pinctrl-0 = <&pmx_btn_power>, <&pmx_btn_unmount>, <&pmx_btn_reset>;
+		pinctrl-names = "default";
+
+		power {
+			label = "Power button";
+			linux,code = <0x74>;  /* KEY_POWER */
+			gpios = <&gpio1 0x02 0x01>; /* mpp34, active low */
+		};
+
+		eject {
+			label = "USB unmount button";
+			linux,code = <0xa1>;  /* KEY_EJECTCLOSECD */
+			gpios = <&gpio1 0x0f 0x01>; /* mpp47, active low */
+		};
+
+		reset {
+			label = "Reset button";
+			linux,code = <0x198>; /* KEY_RESTART */
+			gpios = <&gpio1 0x10 0x01>; /* mpp48, active low */
+		};
+	};
+
+	/*
+	 * GPIO fan — 2-speed control [DNS-325 values]
+	 * First GPIO:  mpp46 = gpio1 bit 14 (low speed)
+	 * Second GPIO: mpp45 = gpio1 bit 13 (high speed)
+	 * Speed map: 0 RPM = 0b00, 3000 RPM = 0b01 (low), 6000 RPM = 0b10 (high)
+	 */
+	gpio_fan {
+		compatible = "gpio-fan";
+		pinctrl-0 = <&pmx_fan_high>, <&pmx_fan_low>;
+		pinctrl-names = "default";
+		gpios = <&gpio1 0x0e 0x00>,  /* mpp46 = gpio1 bit 14 (low speed) */
+			<&gpio1 0x0d 0x00>;  /* mpp45 = gpio1 bit 13 (high speed) */
+		gpio-fan,speed-map = <0x00 0x00>,
+				     <0xbb8 0x01>,   /* 3000 RPM = low speed */
+				     <0x1770 0x02>;  /* 6000 RPM = high speed */
+	};
+
+	/*
+	 * GPIO poweroff — mpp36 = gpio1 bit 4
+	 * Directly powers off the NAS via GPIO
+	 */
+	gpio_poweroff {
+		compatible = "gpio-poweroff";
+		pinctrl-0 = <&pmx_poweroff>;
+		pinctrl-names = "default";
+		gpios = <&gpio1 0x04 0x00>; /* mpp36 */
+	};
+
+	/*
+	 * SATA power regulators — [DNS-325 values]
+	 * GPIO-controlled 5V regulators for disk power
+	 * mpp39 = gpio1 bit 7 = SATA0
+	 * mpp40 = gpio1 bit 8 = SATA1
+	 * DNS-345 has 4 bays via PCIe SATA — these control integrated SATA power
+	 */
+	regulators {
+		compatible = "simple-bus";
+		#address-cells = <0x01>;
+		#size-cells = <0x00>;
+		pinctrl-0 = <&pmx_sata0_pwr>, <&pmx_sata1_pwr>;
+		pinctrl-names = "default";
+
+		regulator@1 {
+			compatible = "regulator-fixed";
+			reg = <0x01>;
+			regulator-name = "SATA0 Power";
+			regulator-min-microvolt = <0x4c4b40>; /* 5V */
+			regulator-max-microvolt = <0x4c4b40>;
+			enable-active-high;
+			regulator-always-on;
+			regulator-boot-on;
+			gpio = <&gpio1 0x07 0x00>; /* mpp39 */
+		};
+
+		regulator@2 {
+			compatible = "regulator-fixed";
+			reg = <0x02>;
+			regulator-name = "SATA1 Power";
+			regulator-min-microvolt = <0x4c4b40>; /* 5V */
+			regulator-max-microvolt = <0x4c4b40>;
+			enable-active-high;
+			regulator-always-on;
+			regulator-boot-on;
+			gpio = <&gpio1 0x08 0x00>; /* mpp40 */
+		};
+	};
+
+	/*
+	 * GPIO LEDs — [DNS-325 pin assignments]
+	 * These are for the 2-bay DNS-325; the 4-bay DNS-345
+	 * may have different/additional LED GPIOs.
+	 */
+	gpio-leds {
+		compatible = "gpio-leds";
+		pinctrl-0 = <&pmx_led_power>, <&pmx_led_red_usb>,
+			    <&pmx_led_red_l_hdd>, <&pmx_led_red_r_hdd>,
+			    <&pmx_led_white_usb>;
+		pinctrl-names = "default";
+
+		white-power {
+			label = "dns345:white:power";
+			gpios = <&gpio0 0x1a 0x01>; /* mpp26, active low */
+			default-state = "keep";
+		};
+
+		white-usb {
+			label = "dns345:white:usb";
+			gpios = <&gpio1 0x0b 0x01>; /* mpp43, active low */
+		};
+
+		red-l_hdd {
+			label = "dns345:red:l_hdd";
+			gpios = <&gpio0 0x1c 0x01>; /* mpp28, active low */
+		};
+
+		red-r_hdd {
+			label = "dns345:red:r_hdd";
+			gpios = <&gpio0 0x1b 0x01>; /* mpp27, active low */
+		};
+
+		red-usb {
+			label = "dns345:red:usb";
+			gpios = <&gpio0 0x1d 0x01>; /* mpp29, active low */
+		};
+	};
+};

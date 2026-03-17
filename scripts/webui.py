@@ -63,26 +63,61 @@ def get_memory():
         return 0, 0, 0
 
 
-def get_temperature():
-    """Read LM75 temperature sensor via I2C sysfs."""
-    for hwmon in ["/sys/class/hwmon/hwmon0", "/sys/class/hwmon/hwmon1", "/sys/class/hwmon/hwmon2"]:
-        path = f"{hwmon}/temp1_input"
-        if os.path.exists(path):
-            try:
-                with open(path) as f:
-                    return int(f.read().strip()) / 1000
-            except Exception:
-                pass
-    # Fallback: direct I2C read
-    raw = run("i2cget -y 0 0x48 0x00 w 2>/dev/null")
-    if raw:
+def _find_hwmon(name):
+    """Find hwmon path by chip name (e.g. 'lm75', 'kirkwood_thermal', 'gpio_fan')."""
+    base = "/sys/class/hwmon"
+    try:
+        for entry in os.listdir(base):
+            name_path = os.path.join(base, entry, "name")
+            if os.path.exists(name_path):
+                with open(name_path) as f:
+                    if f.read().strip() == name:
+                        return os.path.join(base, entry)
+    except Exception:
+        pass
+    return None
+
+
+def get_temperatures():
+    """Read both temperature sensors: LM75 (board) and kirkwood_thermal (SoC)."""
+    temps = {}
+    # LM75 — board/ambient temperature
+    hwmon = _find_hwmon("lm75")
+    if hwmon:
         try:
-            val = int(raw, 16)
-            temp = ((val & 0xFF) << 1) | ((val >> 15) & 1)
-            return temp * 0.5
+            with open(os.path.join(hwmon, "temp1_input")) as f:
+                temps["board"] = int(f.read().strip()) / 1000
         except Exception:
             pass
-    return None
+    # kirkwood_thermal — SoC internal temperature
+    hwmon = _find_hwmon("kirkwood_thermal")
+    if hwmon:
+        try:
+            with open(os.path.join(hwmon, "temp1_input")) as f:
+                temps["soc"] = int(f.read().strip()) / 1000
+        except Exception:
+            pass
+    return temps
+
+
+def get_fan():
+    """Read GPIO fan status from hwmon."""
+    hwmon = _find_hwmon("gpio_fan")
+    if not hwmon:
+        return None
+    fan = {}
+    try:
+        with open(os.path.join(hwmon, "fan1_input")) as f:
+            fan["rpm"] = int(f.read().strip())
+    except Exception:
+        fan["rpm"] = None
+    # Read current speed setting if available
+    try:
+        with open(os.path.join(hwmon, "pwm1")) as f:
+            fan["pwm"] = int(f.read().strip())
+    except Exception:
+        fan["pwm"] = None
+    return fan
 
 
 def get_raid_status():
@@ -193,7 +228,8 @@ def render_page():
     uptime = get_uptime()
     load1, load5, load15 = get_load()
     mem_total, mem_used, mem_pct = get_memory()
-    temp = get_temperature()
+    temps = get_temperatures()
+    fan = get_fan()
     raid_status, raid_detail, raid_progress = get_raid_status()
     disks = get_disks()
     smart = get_smart()
@@ -204,18 +240,23 @@ def render_page():
     # RAID color
     raid_color = {"OK": "#4caf50", "DEGRADED": "#f44336", "SYNCING": "#ff9800"}.get(raid_status, "#999")
 
-    # Temp color
-    if temp is not None:
-        if temp < 40:
-            temp_color = "#4caf50"
-        elif temp < 50:
-            temp_color = "#ff9800"
-        else:
-            temp_color = "#f44336"
-        temp_str = f"{temp:.1f}"
+    # Temp colors helper
+    def _temp_style(t, warn=45, crit=55):
+        if t is None:
+            return "#999", "?"
+        color = "#4caf50" if t < warn else "#ff9800" if t < crit else "#f44336"
+        return color, f"{t:.1f}"
+
+    board_color, board_str = _temp_style(temps.get("board"), 40, 50)
+    soc_color, soc_str = _temp_style(temps.get("soc"), 55, 70)
+
+    # Fan display
+    if fan and fan.get("rpm") is not None:
+        fan_str = f'{fan["rpm"]} RPM'
+        fan_color = "#4caf50" if fan["rpm"] > 0 else "#888"
     else:
-        temp_color = "#999"
-        temp_str = "?"
+        fan_str = "?"
+        fan_color = "#999"
 
     # Memory bar color
     mem_color = "#4caf50" if mem_pct < 70 else "#ff9800" if mem_pct < 90 else "#f44336"
@@ -323,8 +364,16 @@ td {{ padding: 6px 8px; border-bottom: 1px solid #1a1a2e; font-size: 0.9em; }}
             <span class="value">{uptime}</span>
         </div>
         <div class="stat">
-            <span class="label">Temperature</span>
-            <span class="value" style="color:{temp_color}">{temp_str}&deg;C</span>
+            <span class="label">Board Temp (LM75)</span>
+            <span class="value" style="color:{board_color}">{board_str}&deg;C</span>
+        </div>
+        <div class="stat">
+            <span class="label">SoC Temp</span>
+            <span class="value" style="color:{soc_color}">{soc_str}&deg;C</span>
+        </div>
+        <div class="stat">
+            <span class="label">Fan</span>
+            <span class="value" style="color:{fan_color};font-size:1em">{fan_str}</span>
         </div>
         <div class="stat">
             <span class="label">Load</span>
@@ -384,13 +433,14 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(content)
         elif self.path == "/api/status":
-            temp = get_temperature()
+            temps = get_temperatures()
             raid_status, _, _ = get_raid_status()
             load1, load5, load15 = get_load()
             mem_total, mem_used, mem_pct = get_memory()
             data = json.dumps({
                 "uptime": get_uptime(),
-                "temp": temp,
+                "temps": temps,
+                "fan": get_fan(),
                 "load": [load1, load5, load15],
                 "memory": {"total": mem_total, "used": mem_used, "pct": mem_pct},
                 "raid": raid_status,
