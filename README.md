@@ -419,8 +419,8 @@ Once you have the `Marvell>>` prompt, flash the kernel:
 
 ```
 # Configure network
-setenv ipaddr 192.168.1.109        # NAS IP (pick any free IP)
-setenv serverip 192.168.1.114      # Your host PC IP (running TFTP)
+setenv ipaddr <NAS_IP>        # NAS IP (pick any free IP)
+setenv serverip <HOST_IP>      # Your host PC IP (running TFTP)
 
 # Download kernel via TFTP
 tftpboot 0x800000 uImage-ts419
@@ -548,8 +548,8 @@ cp uboot_debian.bin /tmp/tftp/
 
 From the U-Boot prompt on the NAS:
 ```
-setenv ipaddr 192.168.1.109
-setenv serverip 192.168.1.114
+setenv ipaddr <NAS_IP>
+setenv serverip <HOST_IP>
 tftpboot 0x2000000 uboot_debian.bin
 
 # ⚠️  THIS ERASES THE BOOTLOADER — if power is lost here, the NAS is bricked
@@ -671,7 +671,7 @@ EOF
 /etc/init.d/smbd restart
 ```
 
-Access from any machine: `smb://192.168.1.116/data` (or `\\192.168.1.116\data` on Windows)
+Access from any machine: `smb://<NAS_IP>/data` (or `\\<NAS_IP>\data` on Windows)
 
 ### Phase 13: Security Hardening
 
@@ -747,7 +747,7 @@ If you just want to get a U-Boot prompt (to diagnose):
 ```bash
 # Create a "flasher" that tries DHCP+TFTP, fails, drops to prompt
 python3 scripts/patch_uboot.py mtd0_uboot.bin uboot_flasher.bin \
-    --flasher 192.168.1.114
+    --flasher <HOST_IP>
 ```
 
 #### Step 2: Send U-Boot via kwboot
@@ -791,8 +791,8 @@ If you used the flasher patch:
 
 From the prompt, flash the patched U-Boot permanently to NAND:
 ```
-setenv ipaddr 192.168.1.109
-setenv serverip 192.168.1.114
+setenv ipaddr <NAS_IP>
+setenv serverip <HOST_IP>
 tftpboot 0x2000000 uboot_debian.bin
 nand erase 0x0 0x100000
 nand write 0x2000000 0x0 0x100000

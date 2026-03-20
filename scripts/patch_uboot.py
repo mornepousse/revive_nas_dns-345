@@ -25,7 +25,7 @@ Usage:
 
     # Create flasher U-Boot (for brick recovery via kwboot):
     python3 patch_uboot.py mtd0_dump.bin uboot_flasher.bin \\
-        --flasher 192.168.1.114
+        --flasher <HOST_IP>
 """
 
 import struct
@@ -177,7 +177,7 @@ def main():
         print(f"NOTE: 'dhcp' requires a DHCP server on the network.")
         print(f"If dhcp fails, the flasher will fail and U-Boot will drop to a prompt.")
         print(f"From there, manually configure network and flash:")
-        print(f"  setenv ipaddr 192.168.1.109")
+        print(f"  setenv ipaddr <NAS_IP>")
         print(f"  setenv serverip {args.flasher}")
         print(f"  tftpboot 0x2000000 u")
         print(f"  nand erase 0x0 0x100000")
@@ -187,8 +187,8 @@ def main():
         print(f"")
         print(f"=== NEXT STEPS ===")
         print(f"Flash to NAND from U-Boot prompt:")
-        print(f"  setenv ipaddr 192.168.1.109      # NAS IP")
-        print(f"  setenv serverip 192.168.1.114     # TFTP server IP")
+        print(f"  setenv ipaddr <NAS_IP>            # NAS IP")
+        print(f"  setenv serverip <HOST_IP>         # TFTP server IP")
         print(f"  tftpboot 0x2000000 uboot_debian.bin")
         print(f"  nand erase 0x0 0x100000")
         print(f"  nand write 0x2000000 0x0 0x100000")
