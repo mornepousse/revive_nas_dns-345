@@ -1,0 +1,41 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          fan-control
+# Required-Start:    $local_fs
+# Required-Stop:     $local_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: DNS-345 temperature-based fan control
+### END INIT INFO
+
+DAEMON=/usr/local/bin/fan-control.sh
+PIDFILE=/var/run/fan-control.pid
+LOGFILE=/var/log/fan-control.log
+
+case "$1" in
+    start)
+        echo "Starting fan-control..."
+        start-stop-daemon --start --background --make-pidfile --pidfile $PIDFILE \
+            --exec /bin/sh -- $DAEMON >> $LOGFILE 2>&1
+        ;;
+    stop)
+        echo "Stopping fan-control..."
+        start-stop-daemon --stop --pidfile $PIDFILE --retry 5
+        rm -f $PIDFILE
+        ;;
+    restart)
+        $0 stop
+        $0 start
+        ;;
+    status)
+        if [ -f $PIDFILE ] && kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
+            echo "Running (PID $(cat $PIDFILE))"
+        else
+            echo "Not running"
+        fi
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|status}"
+        exit 1
+        ;;
+esac
