@@ -691,11 +691,11 @@ ssh root@<nas-ip> "sh -s" < scripts/harden.sh
 
 | Measure | Before | After |
 |---------|--------|-------|
-| **rpcbind/rpc.statd** | Listening on all interfaces (port 111) | Disabled |
+| **NFS RPC ports** | Dynamic (mountd/statd/lockd) | Pinned (32767/32765/32768) so firewall can allow only what's needed |
 | **SSH root login** | Password accepted | Key-only (`prohibit-password`) |
 | **SSH password auth** | Enabled (brute-force risk) | Disabled |
 | **Samba file access** | Runs as `root` | Runs as dedicated `nasdata` user |
-| **Firewall** | None (all ports open) | SSH, SMB, NTP, ping only — rest dropped |
+| **Firewall** | None (all ports open) | SSH/SMB/dashboard/NTP/ping always, NFS LAN-only — rest dropped |
 | **IPv6** | Enabled on all services | Disabled |
 
 > **Important:** Before running this script, make sure your SSH key is in `/root/.ssh/authorized_keys` on the NAS — password login will be disabled!
@@ -705,13 +705,26 @@ ssh root@<nas-ip> "sh -s" < scripts/harden.sh
 ```
 ACCEPT  established/related connections
 ACCEPT  loopback (lo)
-ACCEPT  TCP 22   (SSH)
-ACCEPT  TCP 445  (SMB)
-ACCEPT  TCP 139  (NetBIOS/SMB)
-ACCEPT  UDP 123  (NTP)
-ACCEPT  ICMP     (ping)
+ACCEPT  TCP 22                       (SSH)
+ACCEPT  TCP 445                      (SMB)
+ACCEPT  TCP 139                      (NetBIOS/SMB)
+ACCEPT  TCP 8080                     (dashboard)
+ACCEPT  UDP 123                      (NTP)
+ACCEPT  TCP/UDP 111,2049,32765,
+        32767,32768  src=LAN/24      (NFS — LAN only)
+ACCEPT  ICMP                         (ping)
 DROP    everything else
 ```
+
+#### NFS Export
+
+`/etc/exports` (single line):
+
+```
+/srv/data 192.168.1.0/24(rw,sync,no_subtree_check,all_squash,anonuid=999,anongid=998)
+```
+
+`all_squash` maps every NFS client UID/GID to the `nasdata` user (uid 999, gid 998 — same identity Samba uses via `force user`), so file ownership stays consistent across SMB and NFS regardless of the client's local UID.
 
 Rules are persisted in `/etc/iptables/rules.v4` and restored at boot via `/etc/network/if-pre-up.d/iptables`.
 
