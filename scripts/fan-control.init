@@ -16,7 +16,7 @@ case "$1" in
     start)
         echo "Starting fan-control..."
         start-stop-daemon --start --background --make-pidfile --pidfile $PIDFILE \
-            --exec /bin/sh -- $DAEMON >> $LOGFILE 2>&1
+            --exec /bin/sh -- -c "exec $DAEMON >> $LOGFILE 2>&1"
         ;;
     stop)
         echo "Stopping fan-control..."
