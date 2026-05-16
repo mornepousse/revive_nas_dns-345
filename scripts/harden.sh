@@ -6,12 +6,18 @@ set -e
 
 echo "=== DNS-345 Security Hardening ==="
 
-# 1. Disable unnecessary services (rpcbind, rpc.statd)
-echo "[1/6] Disabling rpcbind and NFS services..."
-update-rc.d rpcbind disable 2>/dev/null || true
-update-rc.d nfs-common disable 2>/dev/null || true
-/etc/init.d/rpcbind stop 2>/dev/null || true
-kill $(pidof rpc.statd) 2>/dev/null || true
+# 1. NFS: pin RPC ports so the firewall can allow only what's needed
+#    (NFS uses dynamic ports for mountd/statd/lockd by default)
+echo "[1/6] Pinning NFS RPC ports..."
+if [ -f /etc/default/nfs-kernel-server ]; then
+    sed -i 's|^RPCMOUNTDOPTS=.*|RPCMOUNTDOPTS="--manage-gids --port 32767"|' /etc/default/nfs-kernel-server
+    sed -i 's|^STATDOPTS=.*|STATDOPTS="--port 32765 --outgoing-port 32766"|' /etc/default/nfs-common
+    cat > /etc/sysctl.d/30-nfs-lockd.conf << EOF
+fs.nfs.nlm_tcpport = 32768
+fs.nfs.nlm_udpport = 32768
+EOF
+    sysctl -p /etc/sysctl.d/30-nfs-lockd.conf >/dev/null 2>&1 || true
+fi
 
 # 2. Harden SSH: key-only auth, no root password login
 echo "[2/6] Hardening SSH..."
@@ -41,13 +47,20 @@ echo "[5/6] Configuring firewall..."
 if ! command -v iptables >/dev/null 2>&1; then
     apt-get install -y iptables
 fi
+# LAN subnet allowed for services that should not be exposed beyond it
+LAN="${LAN:-192.168.1.0/24}"
+
 iptables -F
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A INPUT -p tcp --dport 22 -j ACCEPT
 iptables -A INPUT -p tcp --dport 445 -j ACCEPT
 iptables -A INPUT -p tcp --dport 139 -j ACCEPT
+iptables -A INPUT -p tcp --dport 8080 -j ACCEPT
 iptables -A INPUT -p udp --dport 123 -j ACCEPT
+# NFS: rpcbind 111, nfs 2049, statd 32765, mountd 32767, lockd 32768 — LAN only
+iptables -A INPUT -p tcp -m multiport --dports 111,2049,32765,32767,32768 -s "$LAN" -j ACCEPT
+iptables -A INPUT -p udp -m multiport --dports 111,2049,32765,32767,32768 -s "$LAN" -j ACCEPT
 iptables -A INPUT -p icmp -j ACCEPT
 iptables -A INPUT -j DROP
 
@@ -66,10 +79,10 @@ sysctl -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null || true
 
 echo ""
 echo "=== Hardening complete ==="
-echo "  - rpcbind/NFS: disabled"
+echo "  - NFS RPC ports: pinned (mountd 32767, statd 32765, lockd 32768)"
 echo "  - SSH: key-only, no root password login"
 echo "  - Samba: runs as 'nasdata' user (not root)"
-echo "  - Firewall: SSH/SMB/NTP/ping only, rest dropped"
+echo "  - Firewall: SSH/SMB/dashboard/NTP/ping always, NFS LAN-only ($LAN)"
 echo "  - IPv6: disabled"
 echo ""
 echo "Verify with: ss -tlnp && iptables -L -n"

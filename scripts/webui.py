@@ -157,14 +157,20 @@ def get_disks():
     return disks
 
 
+_SMART_CACHE = {"ts": 0, "data": []}
+_SMART_TTL = 30  # seconds — matches page auto-refresh
+
+
 def get_smart():
-    """Get SMART health for each SATA disk."""
+    """Get SMART health for each SATA disk (cached for _SMART_TTL seconds)."""
+    now = time.time()
+    if now - _SMART_CACHE["ts"] < _SMART_TTL and _SMART_CACHE["data"]:
+        return _SMART_CACHE["data"]
     results = []
-    for dev in ["sda", "sdb", "sdc", "sde"]:
+    for dev in ["sda", "sdb", "sdc", "sdd"]:
         path = f"/dev/{dev}"
         if not os.path.exists(path):
             continue
-        health = run(f"smartctl -H {path} 2>/dev/null | grep 'result'")
         smart_all = run(f"smartctl -AH {path} 2>/dev/null")
 
         passed = "PASSED" in smart_all if smart_all else None
@@ -193,6 +199,8 @@ def get_smart():
             "hours": power_hours,
             "realloc": realloc_count,
         })
+    _SMART_CACHE["ts"] = now
+    _SMART_CACHE["data"] = results
     return results
 
 
