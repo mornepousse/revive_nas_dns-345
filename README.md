@@ -25,6 +25,9 @@ This guide covers the complete process, including the solution to the undocument
   - [Phase 11: RAID 5](#phase-11-raid-5-optional)
   - [Phase 12: Samba SMB2/3](#phase-12-samba-smb23)
   - [Phase 13: Security Hardening](#phase-13-security-hardening)
+  - [Phase 14: NFS Server](#phase-14-nfs-server)
+  - [Phase 15: Web Dashboard](#phase-15-web-dashboard)
+  - [Phase 16: Temperature-Based Fan Control](#phase-16-temperature-based-fan-control)
 - [Brick Recovery](#brick-recovery)
 - [U-Boot Binary Reference](#u-boot-binary-reference)
 - [Troubleshooting](#troubleshooting)
@@ -46,9 +49,12 @@ The DNS-345 ships with software from 2009:
 After this guide, you'll have:
 - **Kernel 6.5.7** with security updates
 - **Samba 4.17** with SMB2/SMB3 (works with all modern clients)
+- **NFSv4 server** sharing the same data tree as Samba
 - **OpenSSH 9.2** with modern algorithms
 - **Debian 12** with `apt` package manager
 - **RAID 5** with 4 disks (~2.7TB usable)
+- **Web dashboard** (port 8080) showing temps, RAID, SMART, services
+- **Automatic fan control** — varies speed based on board temperature instead of running at max
 - **Automatic boot** — no manual intervention needed
 
 ## Hardware
@@ -730,6 +736,88 @@ Rules are persisted in `/etc/iptables/rules.v4` and restored at boot via `/etc/n
 
 ---
 
+### Phase 14: NFS Server
+
+Samba is fine for clients that need SMB, but NFS is faster and gives consistent POSIX semantics for Linux/macOS clients. The same `/srv/data` tree is exported.
+
+```bash
+apt install -y nfs-kernel-server
+```
+
+The hardening script (Phase 13) already pinned the RPC ports and opened them in the firewall. The export itself:
+
+```bash
+echo "/srv/data 192.168.1.0/24(rw,sync,no_subtree_check,all_squash,anonuid=999,anongid=998)" > /etc/exports
+exportfs -ra
+service nfs-kernel-server restart
+```
+
+The boot-time service order (sysvinit, `rcS.d`) chains `rpcbind` → `nfs-common` → `nfs-kernel-server` automatically.
+
+#### Mount from a Client
+
+```bash
+sudo mkdir -p /mnt/nas
+sudo mount -t nfs <nas-ip>:/srv/data /mnt/nas
+```
+
+Persistent via `/etc/fstab` (autofs-style, mounts on first access):
+
+```
+<nas-ip>:/srv/data  /mnt/nas  nfs  defaults,noauto,x-systemd.automount  0  0
+```
+
+---
+
+### Phase 15: Web Dashboard
+
+A small status page served on port 8080, no dependencies beyond Python 3 stdlib. Shows uptime, board/SoC temperatures, fan RPM, load/RAM, RAID state, per-disk SMART (health, temp, age, reallocated sectors), filesystem usage, and a service rundown. Auto-refreshes every 30 seconds.
+
+```bash
+# Install
+scp scripts/webui.py root@<nas-ip>:/usr/local/bin/nas-dashboard.py
+ssh root@<nas-ip> "chmod +x /usr/local/bin/nas-dashboard.py"
+
+# SysV init wrapper (see repo for the full init script)
+scp scripts/dashboard.init root@<nas-ip>:/etc/init.d/nas-dashboard
+ssh root@<nas-ip> "chmod +x /etc/init.d/nas-dashboard && update-rc.d nas-dashboard defaults && service nas-dashboard start"
+```
+
+Open `http://<nas-ip>:8080` in a browser.
+
+SMART data is cached for 30 s (the page-refresh interval) — without the cache each page render forks 4 `smartctl` calls and takes ~3 s on the Feroceon CPU. With cache, warm renders are ~250 ms.
+
+---
+
+### Phase 16: Temperature-Based Fan Control
+
+The DNS-345 fan is driven by a `gpio-fan` with three discrete speeds: 0 / 3000 / 6000 RPM. Out of the box `rc.local` pins it to 6000 RPM (max, loud) because nothing wires the LM75 board sensor to the kernel thermal framework.
+
+The included daemon polls every 15 s and steps the fan with hysteresis:
+
+| Sensor | Threshold | Action |
+|--------|-----------|--------|
+| LM75 (board) | < 35 °C (after step-down) | OFF |
+| LM75 | 38–46 °C | LOW (3000 RPM) |
+| LM75 | ≥ 46 °C | HIGH (6000 RPM) |
+| kirkwood_thermal (SoC) | ≥ 65 °C | force at least LOW |
+| kirkwood_thermal (SoC) | ≥ 75 °C | force HIGH |
+
+The SoC sits at 55–60 °C even at idle on Kirkwood — using it as the primary signal would keep the fan stuck at HIGH forever, so the LM75 (which actually reflects what the disks see) drives normal decisions and the SoC is a loose safety override.
+
+```bash
+# Deploy
+scp scripts/fan-control.sh   root@<nas-ip>:/usr/local/bin/
+scp scripts/fan-control.init root@<nas-ip>:/etc/init.d/fan-control
+ssh root@<nas-ip> "chmod +x /usr/local/bin/fan-control.sh /etc/init.d/fan-control && update-rc.d fan-control defaults && service fan-control start"
+
+# Remove the old "echo 255 > pwm1" lines from /etc/rc.local
+```
+
+Thresholds are env-overridable: `T_LOW=35 T_HIGH=44 HYST=3 INTERVAL=15`. Every transition is logged to `/var/log/fan-control.log` with the temps that caused it.
+
+---
+
 ## Brick Recovery
 
 If U-Boot is corrupted (no serial output, no LEDs, fan runs), you can recover using **kwboot** — a tool that sends a U-Boot binary over the UART serial port to the Kirkwood boot ROM.
@@ -989,9 +1077,9 @@ ssh -o StrictHostKeyChecking=no \
 The TS-419 DTB works for SATA and Ethernet, but doesn't include:
 - **NAND controller** (`orion-nand`) — the DNS-325 DTB has it, the TS-419 doesn't. Adding it would allow NAND access from Linux (no need for U-Boot to flash).
 - **GPIO LEDs** — power LED, disk activity LEDs, USB LED
-- **GPIO fan control** — variable speed based on temperature
 - **GPIO buttons** — power button, USB unmount button
-- **Temperature sensor** — LM75 at I2C 0x48 (hardware works, needs DTB node)
+
+The custom `boot/kirkwood-dns345.dts` already wires up the `gpio-fan` and the LM75 sensor (used by the fan controller in Phase 16).
 
 A custom DTS combining TS-419 PCIe + DNS-325 NAND/GPIO nodes would enable all hardware features.
 
@@ -1023,7 +1111,10 @@ The Doozan kernel 6.5.7 works but is not the latest. Building a newer kernel req
 │   └── kirkwood-dns325.dtb            # Original DTB (PCI-E disabled) ✗
 ├── scripts/
 │   ├── patch_uboot.py                 # U-Boot patcher for automatic Debian boot
-│   ├── harden.sh                      # Security hardening (firewall, SSH, Samba)
+│   ├── harden.sh                      # Security hardening (firewall, SSH, Samba, NFS port pinning)
+│   ├── webui.py                       # Web dashboard (deployed as /usr/local/bin/nas-dashboard.py)
+│   ├── fan-control.sh                 # Temperature-based fan daemon
+│   ├── fan-control.init               # SysV init script for the fan daemon
 │   ├── build_env.py                   # U-Boot environment block builder
 │   ├── do_config.sh                   # Rootfs configuration script
 │   ├── do_extract.sh                  # Rootfs extraction script
