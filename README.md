@@ -11,6 +11,7 @@ This guide covers the complete process, including the solution to the undocument
 - [Prerequisites](#prerequisites)
 - [Architecture](#architecture)
 - [Key Discoveries](#key-discoveries)
+- [Mini-Tutorial: Your First Serial Connection](#mini-tutorial-your-first-serial-connection)
 - [Step-by-Step Installation](#step-by-step-installation)
   - [Phase 1: Connect Serial Console](#phase-1-connect-serial-console)
   - [Phase 2: Get Shell Access](#phase-2-get-shell-access)
@@ -68,14 +69,14 @@ After this guide, you'll have:
 | **NAND** | 128 MB (Hynix, 128KB erase blocks, 2048-byte pages) |
 | **SATA** | Marvell 88SX7042 PCI-Express (4 ports) |
 | **Ethernet** | 2x Gigabit (Marvell mv643xx) |
-| **UART** | JP1 header on PCB, 115200 8N1, 3.3V TTL |
+| **UART** | JP1, 5-position 2.54 mm header, pin 2 removed as a key; VCC on position 3, 115200 8N1, 3.3V TTL |
 | **I2C** | LM75 temperature sensor at 0x48 |
 
 ## Prerequisites
 
 **Hardware you need:**
 - USB-TTL serial adapter (3.3V, e.g. CH340, CP2102, FT232RL)
-- 3 jumper wires (TX, RX, GND)
+- 3 female-to-female jumper wires, 2.54 mm / 0.1" (the ordinary "Dupont" kind — TX, RX, GND)
 - A computer on the same LAN (Linux, macOS, or Windows with WSL)
 
 **Software you need on the host PC:**
@@ -158,13 +159,14 @@ sda       sda1 (4 GB)        Debian rootfs (ext3, mounted /)
           sda2 (rest)        RAID 5 member
 sdb       sdb1 (full)        RAID 5 member
 sdc       sdc1 (full)        RAID 5 member
-sdd       USB flash (4 GB)   Backup rootfs (cold standby)
-sde       sde1 (full)        RAID 5 member
+sdd       sdd1 (full)        RAID 5 member
 
 md0       RAID 5 (2.7 TB)    Data volume (ext4, mounted /srv/data)
 ```
 
-> **Note:** Device names (sda/sdb/sdc/sdd/sde) may change between boots. Use `lsblk` to identify devices.
+If you add the optional USB backup rootfs (below), it appears as a further device — but do not assume which letter.
+
+> **Note:** Device names may change between boots — see [Key Discovery #4](#4-disk-ordering-changes-with-new-kernel). Identify devices with `lsblk`, and **never hardcode `/dev/sdX` in a config file**. Under the 2.6.31 stock kernel the fourth RAID member enumerated as `sde`; under 6.5.7 it is `sdd`. A leftover `/dev/sde` line in `/etc/smartd.conf` is what silently kept SMART monitoring from ever starting on this build.
 
 ---
 
@@ -207,37 +209,151 @@ This U-Boot has **no** `loady`, `loadb`, or `loadx` commands. You cannot transfe
 
 ---
 
+## Mini-Tutorial: Your First Serial Connection
+
+**For readers with no electronics background.** This gets you from "a NAS and a screwdriver" to "text from the NAS appearing on my screen" in about twenty minutes. Nothing is soldered, nothing is irreversible, and every step tells you what you should see before moving on. Once you reach the end, the rest of this guide starts at [Phase 2](#phase-2-get-shell-access).
+
+> *What are we doing?* Before any operating system runs, the NAS's boot loader talks over a tiny 3-wire serial port on the main board. Plug a cheap USB adapter onto it and your PC becomes the NAS's keyboard and screen. That is the only way to install anything on this machine.
+
+### Step 1 — Gather the parts (≈ 5 €)
+
+| Part | What to search for | Notes |
+|---|---|---|
+| USB-to-TTL serial adapter | *"CH340 USB TTL 3.3V"* or *"CP2102 USB TTL"* | **Must be 3.3 V.** If it has a jumper or switch for 3.3 V / 5 V, set it to 3.3 V now and never touch it again. |
+| 3 female-to-female jumper wires | *"Dupont jumper wires female female"* | 2.54 mm / 0.1" — the ordinary kind. That is exactly the pitch of the NAS connector. |
+| Small Phillips screwdriver | — | For the six case screws. |
+
+Do **not** buy anything labelled RS-232, DB9, or "serial cable" for PCs — that is a different, higher-voltage standard and will destroy the port.
+
+### Step 2 — Prepare the PC
+
+Install a serial terminal program (see [Prerequisites](#prerequisites) for the exact command on your system; on Debian/Ubuntu it is `sudo apt install picocom`).
+
+Plug the USB adapter into the PC **with nothing wired to it yet**, then:
+
+```bash
+ls /dev/ttyUSB*
+```
+
+✅ **You should see** `/dev/ttyUSB0` (the number may differ — note it, you will type it in Step 7). If nothing appears, try another USB port or cable.
+
+On Linux your user needs permission to use it. Do this once, then log out and back in:
+
+```bash
+sudo usermod -aG dialout "$USER"
+```
+
+### Step 3 — Open the case
+
+**Unplug the NAS power cable.** Six screws hold the back panel; they are circled below. Two of them hide behind the HD1 and HD4 drive-tray latches, so slide those two trays out first. There are no screws under stickers or rubber feet.
+
+<img src="images/back.jpg" alt="Back panel of the DNS-345 with the six screws circled" width="420">
+
+*(Photographed with the unit on its top, so the printed labels read upside down. The screw positions are what matter.)*
+
+✅ **You should see** the green main board once the panel comes away. You do **not** need to remove the board.
+
+### Step 4 — Find the serial connector
+
+Look just below the large Marvell chip, next to a small cylindrical capacitor: a small white connector, labelled JP1. It has five positions but only **four pins** — the second slot is empty on purpose, so nothing can be plugged in backwards.
+
+<img src="images/d-link_dns-345_hardware_centre_top.jpg" alt="DNS-345 main board seen from above, serial connector circled" width="620">
+
+<img src="images/dns_345_pcb_full.jpg" alt="DNS-345 main board in its cage, serial connector circled in red" width="620">
+
+<img src="images/pcb_in_case.jpg" alt="Serial cable plugged into the connector, board still in the case" width="620">
+
+If you ever doubt which end is which, the underside settles it. Position 1 has a **square** solder pad — that is how board makers mark pin 1 — then a gap where position 2 would be, then three round pads:
+
+<img src="images/d-link_dns-345_hardware_centre_bottom.jpg" alt="Underside of the board: square pad, gap, three round pads" width="620">
+
+*Top and bottom board views: Hardware Centre review, annotation added. Full-board-in-cage photo: Le Comptoir du Hardware. The cable photo and the back panel are ours.*
+
+✅ **You should see** one lone pin on one side of the empty slot (position 1) and three pins together on the other (positions 3, 4, 5).
+
+### Step 5 — Connect three wires
+
+```
+JP1 on DNS-345 PCB — 5 positions, 2.54 mm, pin 2 removed
+┌───────────────┐
+│ ■  ✕  ●  ●  ● │
+│ 1  2  3  4  5 │
+└───────────────┘
+
+Pos 1: serial data (TX or RX — see below)
+Pos 2: (no pin — polarizing key, nothing to connect)
+Pos 3: VCC 3.3V — DO NOT CONNECT
+Pos 4: serial data (TX or RX — see below)
+Pos 5: GND
+```
+
+How this was read off the board: positions 1 and 4 each go through a small series resistor — the signature of a data line; position 3 has a wide trace and a decoupling capacitor right beside it — the signature of a power rail. Which of 1 and 4 is TX and which is RX has not been measured, so the wiring below is ordered so that **it does not matter**: you never drive a signal into a pin until you know what it is.
+
+> ⚠️ **Position 3 is a 3.3 V power output. Leave it alone.** It is the *first of the three grouped pins*, the one nearest the empty slot, with the small capacitor beside it. Connecting it to the adapter can damage both devices.
+
+**Wire in this order:**
+
+| # | NAS position | → | Adapter pin | Why this order |
+|---|---|---|---|---|
+| 1 | 5 (GND) | → | **GND** | Common ground first, always. |
+| 2 | 1 | → | **RX** | Listening is harmless whatever the pin is. Do Steps 6–7: if text appears, position 1 is the NAS's TX. If nothing appears, move this wire to position 4 and try again — now 4 is TX. |
+| 3 | the other data pin (4 or 1) | → | **TX** | Only now, once you know which pin was TX, connect the adapter's TX to the remaining data pin — that is the NAS's RX. Typing in the terminal now works. |
+
+Yes, the NAS's TX goes to the adapter's RX and vice versa — each side *transmits* into the other's *receive*. Doing it in this order means the only wrong move possible is "no text yet", never a damaged part.
+
+### Step 6 — Open the terminal *before* powering on
+
+The interesting text appears in the first two seconds after power-up, so start listening first:
+
+```bash
+picocom -b 115200 /dev/ttyUSB0      # use the device name from Step 2
+```
+
+✅ **You should see** `Terminal ready`. (To quit picocom later: press `Ctrl+A`, then `Ctrl+X`.)
+
+### Step 7 — Power on and watch
+
+Plug the NAS power cable back in and press the power button.
+
+✅ **You should see**, within a couple of seconds, text like:
+
+```
+U-Boot 1.1.4 (Jun 26 2012 - 18:13:14) Marvell version: 3.5.9
+...
+Hit any key to stop autoboot:  0
+```
+
+That is the NAS talking to you. **You have a working serial console.** Continue with [Phase 2](#phase-2-get-shell-access) — from here on, the guide assumes exactly this setup.
+
+### If it does not work
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Nothing at all, ever | TX and RX swapped | Power off, swap the two wires, try again. Harmless. |
+| Random symbols / `���` | Wrong speed | Make sure you passed `-b 115200`. |
+| `Permission denied` on `/dev/ttyUSB0` | Not in the `dialout` group | Step 2's `usermod`, then log out and back in — or prefix with `sudo` for now. |
+| `/dev/ttyUSB0` missing | Adapter not detected | Different USB port/cable; some adapters need a driver on macOS/Windows. |
+| Text, but you can't type | Adapter TX not on the NAS's RX yet | Finish wiring step 3: adapter TX to whichever data pin (1 or 4) did *not* give you text. |
+| Autoboot counts down from 0 and you can't interrupt | Normal on stock firmware (`enaAutoRecovery`) | Nothing wrong. [Phase 7](#phase-7-flash-kernel-to-nand) explains how to get a prompt anyway. |
+
+---
+
 ## Step-by-Step Installation
 
 ### Phase 1: Connect Serial Console
 
-The serial console is **required** for U-Boot interaction. The UART header is labeled JP1 on the PCB.
+The serial console is **required** for U-Boot interaction — everything from here on assumes it is working.
 
-**Connection (3.3V TTL — NEVER connect to RS-232 or 5V):**
+**Never done this? Follow the [mini-tutorial](#mini-tutorial-your-first-serial-connection) first.** It covers the shopping list, opening the case, the photos, the pinout and what you should see — with no electronics background assumed.
 
-```
-JP1 Header on DNS-345 PCB
-┌──────────┐
-│ ● ● ● ● │
-│ 1 2 3 4  │
-└──────────┘
-
-Pin 1: VCC (3.3V) — DO NOT CONNECT
-Pin 2: TX  (NAS → PC, connect to adapter RX)
-Pin 3: RX  (PC → NAS, connect to adapter TX)
-Pin 4: GND (connect to adapter GND)
-```
-
-> **Warning:** Pin 1 is 3.3V power output. Do NOT connect it to your adapter's VCC — it can damage both devices. Only connect TX, RX, and GND.
-
-> **Tip:** If you get no output, try swapping TX and RX. If you see garbage characters, verify baud rate is 115200.
-
-Open the serial terminal:
+For reference: connector JP1 is a 5-position 2.54 mm header with pin 2 removed as a key (square pad = position 1 on the underside). Position 5 is GND, positions 1 and 4 are the data lines, **position 3 is 3.3 V and must stay unconnected**. Full diagram and the safe wiring order in [Step 5 of the tutorial](#step-5--connect-three-wires).
 
 ```bash
 picocom -b 115200 /dev/ttyUSB0
 # Exit picocom: Ctrl+A then Ctrl+X
 ```
+
+> **Tip:** No output → swap TX and RX (harmless). Garbage characters → check the baud rate is 115200.
 
 ### Phase 2: Get Shell Access
 
@@ -639,6 +755,24 @@ mdadm --add /dev/md0 /dev/sdX1          # add to array
 # 2. Change U-Boot bootargs: root=/dev/sdd1 (USB device)
 ```
 
+#### Continuous SMART Monitoring
+
+`smartctl` reports health on demand, but nothing watches the disks between your visits. `smartd` does — and on this build it needs one fix before it will even start.
+
+```bash
+apt install -y smartmontools
+scp scripts/smartd.conf root@<nas-ip>:/etc/smartd.conf
+ssh root@<nas-ip> "sed -i 's/^#*start_smartd=.*/start_smartd=yes/' /etc/default/smartmontools \
+    && update-rc.d smartmontools defaults && /etc/init.d/smartmontools start"
+```
+
+Two traps, both of which cost silent monitoring:
+
+- **The service is `smartmontools`, not `smartd`.** Debian names the init script after the package. `service smartd start` fails with no useful message.
+- **The shipped config lists devices by name.** It monitored `/dev/sde`, which stopped existing when the kernel changed enumeration. `smartd` refuses to start when a listed device is missing — so it had never run. `scripts/smartd.conf` uses `DEVICESCAN` instead, which adapts to whatever letters the kernel hands out.
+
+There is no MTA on this machine, so `-m root` would mail into the void; alerts go to syslog. Check it started with `pgrep -l smartd`.
+
 #### USB Backup Rootfs
 
 ```bash
@@ -793,17 +927,25 @@ SMART data is cached for 30 s (the page-refresh interval) — without the cache 
 
 The DNS-345 fan is driven by a `gpio-fan` with three discrete speeds: 0 / 3000 / 6000 RPM. Out of the box `rc.local` pins it to 6000 RPM (max, loud) because nothing wires the LM75 board sensor to the kernel thermal framework.
 
-The included daemon polls every 15 s and steps the fan with hysteresis:
+The included daemon polls every 15 s. Defaults are `T_LOW=38 T_HIGH=46 HYST=3`:
 
 | Sensor | Threshold | Action |
 |--------|-----------|--------|
-| LM75 (board) | < 35 °C (after step-down) | OFF |
-| LM75 | 38–46 °C | LOW (3000 RPM) |
-| LM75 | ≥ 46 °C | HIGH (6000 RPM) |
+| LM75 (board) | ≥ `T_HIGH` (46 °C) | HIGH (6000 RPM) |
+| LM75 | ≥ `T_LOW` (38 °C) | LOW (3000 RPM) |
+| LM75 | < `T_LOW` | OFF |
 | kirkwood_thermal (SoC) | ≥ 65 °C | force at least LOW |
 | kirkwood_thermal (SoC) | ≥ 75 °C | force HIGH |
 
 The SoC sits at 55–60 °C even at idle on Kirkwood — using it as the primary signal would keep the fan stuck at HIGH forever, so the LM75 (which actually reflects what the disks see) drives normal decisions and the SoC is a loose safety override.
+
+#### Hysteresis: dead bands, not bare thresholds
+
+`HYST` attaches a **dead band to the current state**: once a step has been taken, you don't leave it until the temperature falls `HYST` degrees *below the threshold that triggered it*. From HIGH, the fan stays HIGH down to `T_HIGH - HYST` (43 °C); from LOW, it stays LOW down to `T_LOW - HYST` (35 °C).
+
+This matters more than it looks. An earlier version compared against the wrong bound and produced a **non-monotonic** table — from HIGH it returned max speed at 42 °C but low speed at 44 °C. A board resting near a threshold then oscillated every poll: over 9900 transitions were logged, peaking at 580 in a single day. `test/unit_fan_control.sh` now pins the whole truth table plus two properties — monotonicity, and the impossibility of two states pointing at each other.
+
+Note the consequence of correct hysteresis: if your board genuinely sits at `T_HIGH`, the fan will genuinely stay at HIGH. That is not a bug — it means the threshold is too low for your ambient. Compare against disk temperatures (`smartctl -A`) before deciding; the ST1000DM003 wants to stay under ~45 °C and is usually far cooler than the board sensor.
 
 ```bash
 # Deploy
@@ -814,7 +956,20 @@ ssh root@<nas-ip> "chmod +x /usr/local/bin/fan-control.sh /etc/init.d/fan-contro
 # Remove the old "echo 255 > pwm1" lines from /etc/rc.local
 ```
 
-Thresholds are env-overridable: `T_LOW=35 T_HIGH=44 HYST=3 INTERVAL=15`. Every transition is logged to `/var/log/fan-control.log` with the temps that caused it.
+Thresholds live in `/etc/default/fan-control`, sourced by the init script — no need to edit the daemon:
+
+```bash
+scp scripts/fan-control.default root@<nas-ip>:/etc/default/fan-control
+ssh root@<nas-ip> "service fan-control restart"
+```
+
+Available knobs: `T_LOW T_HIGH HYST SOC_LOW SOC_HIGH INTERVAL`. Delete the file to fall back to the daemon's built-in defaults. Every transition is logged to `/var/log/fan-control.log` with the temps that caused it — that log is the fastest way to tell whether your thresholds suit the machine.
+
+**Raising `T_HIGH` to buy quiet is a trap on this chassis.** Measured over 24 samples across 16 minutes at a continuous 6000 RPM: the board sensor sits at 50.0–51.0 °C and does not come down. Full speed is not enough to pull it below 50 °C at a warm room temperature — the cooling is saturated, there is no headroom to reclaim.
+
+That matters for where you put `T_HIGH`. At 50 it parks the board exactly on the boundary, which is the setup for a fresh oscillation; at 46 the board sits well inside the HIGH band and the decision is stable. Widen `HYST` to stop oscillation; leave `T_HIGH` where the hardware needs it.
+
+It also means the board sensor tracks room temperature closely. A morning reading of 46 °C and a midday reading of 50 °C on the same idle machine is normal — and the 46 °C case, sitting right on the threshold, is exactly when a too-narrow `HYST` makes the fan chatter.
 
 ---
 
@@ -1108,20 +1263,42 @@ The Doozan kernel 6.5.7 works but is not the latest. Building a newer kernel req
 │   └── tftp_server.py                 # Minimal TFTP server (Python, port 69)
 ├── boot/
 │   ├── kirkwood-ts419-6282.dtb        # Working DTB (PCI-E enabled) ✓
-│   └── kirkwood-dns325.dtb            # Original DTB (PCI-E disabled) ✗
+│   ├── kirkwood-dns325.dtb            # Original DTB (PCI-E disabled) ✗
+│   └── kirkwood-dns345.dts            # Custom DTS (ts419 PCI-E + dns325 GPIO/LM75)
 ├── scripts/
+│   ├── check.sh                       # Anti-regression tripwire — single source of truth
+│   ├── install-hooks.sh               # Enables the versioned git hooks (run once per clone)
+│   ├── apply-audit-fixes.sh           # Pushes the stability fixes to a running NAS
+│   ├── hooks/                         # pre-push + Claude Code hooks, all calling check.sh
 │   ├── patch_uboot.py                 # U-Boot patcher for automatic Debian boot
 │   ├── harden.sh                      # Security hardening (firewall, SSH, Samba, NFS port pinning)
 │   ├── webui.py                       # Web dashboard (deployed as /usr/local/bin/nas-dashboard.py)
+│   ├── dashboard.init                 # SysV init script for the web dashboard
 │   ├── fan-control.sh                 # Temperature-based fan daemon
 │   ├── fan-control.init               # SysV init script for the fan daemon
+│   ├── fan-control.default            # Thresholds (deployed to /etc/default/fan-control)
 │   ├── build_env.py                   # U-Boot environment block builder
 │   ├── do_config.sh                   # Rootfs configuration script
 │   ├── do_extract.sh                  # Rootfs extraction script
 │   ├── do_format.sh                   # Disk formatting script
+│   ├── smartd.conf                    # SMART monitoring (DEVICESCAN — see below)
 │   └── sshd_config                    # SSH config for old firmware
+├── images/
+│   ├── back.jpg                       # Back panel, six screws circled
+│   ├── pcb_in_case.jpg                # Serial connector with cable plugged, board in chassis
+│   ├── dns_345_pcb_full.jpg           # Board in its cage, serial connector circled (Le Comptoir du Hardware)
+│   ├── d-link_dns-345_hardware_centre_top.jpg     # Board top view, connector circled (Hardware Centre)
+│   └── d-link_dns-345_hardware_centre_bottom.jpg  # Board underside: square pad = pin 1 (Hardware Centre)
+├── test/
+│   ├── run_tests.sh                   # Hardware acceptance suite — runs ON the NAS
+│   ├── host_checks.sh                 # Host-side gates (lint, syntax, DTS, doc drift)
+│   └── unit_fan_control.sh            # Truth table + properties of the fan state machine
 └── uboot/                             # NAND dumps (not in git — too large)
 ```
+
+> `test/run_tests.sh` and `test/host_checks.sh` are not interchangeable: the first
+> reads live hardware state (RAID, SMART, Samba) and only means anything on the
+> NAS itself; the second is what CI and the git hooks run.
 
 > Binary files (uImage, zImage, NAND dumps, Debian rootfs tarball) are in `.gitignore`. Download the [Doozan rootfs](https://forum.doozan.com/read.php?2,12096) and build them yourself (Phase 4).
 
@@ -1130,6 +1307,8 @@ The Doozan kernel 6.5.7 works but is not the latest. Building a newer kernel req
 - [Doozan Forum](https://forum.doozan.com/) — Debian Kirkwood rootfs and community knowledge
 - [bodhi](https://forum.doozan.com/read.php?2,12096) — Kirkwood kernel builds and rootfs
 - [CVE-2024-3273](https://nvd.nist.gov/vuln/detail/CVE-2024-3273) — Initial access vector for firmware replacement
+- Le Comptoir du Hardware — board-in-cage photo (`images/dns_345_pcb_full.jpg`)
+- Hardware Centre — top and underside board views (`images/d-link_dns-345_hardware_centre_top.jpg`, `images/d-link_dns-345_hardware_centre_bottom.jpg`)
 
 ## License
 
