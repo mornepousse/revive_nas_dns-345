@@ -283,11 +283,11 @@ JP1 on DNS-345 PCB — 5 positions, 2.54 mm, pin 2 removed
 Pos 1: serial data (TX or RX — see below)
 Pos 2: (no pin — polarizing key, nothing to connect)
 Pos 3: VCC 3.3V — DO NOT CONNECT
-Pos 4: serial data (TX or RX — see below)
-Pos 5: GND
+Pos 4: GND
+Pos 5: serial data (TX or RX — see below)
 ```
 
-How this was read off the board: positions 1 and 4 each go through a small series resistor — the signature of a data line; position 3 has a wide trace and a decoupling capacitor right beside it — the signature of a power rail. Which of 1 and 4 is TX and which is RX has not been measured, so the wiring below is ordered so that **it does not matter**: you never drive a signal into a pin until you know what it is.
+How this was read off the board: positions 1 and 5 each go through a small series resistor — the signature of a data line; position 3 has a wide trace and a decoupling capacitor right beside it — the signature of a power rail. Which of 1 and 5 is TX and which is RX has not been measured, so the wiring below is ordered so that **it does not matter**: you never drive a signal into a pin until you know what it is.
 
 > ⚠️ **Position 3 is a 3.3 V power output. Leave it alone.** It is the *first of the three grouped pins*, the one nearest the empty slot, with the small capacitor beside it. Connecting it to the adapter can damage both devices.
 
@@ -295,9 +295,9 @@ How this was read off the board: positions 1 and 4 each go through a small serie
 
 | # | NAS position | → | Adapter pin | Why this order |
 |---|---|---|---|---|
-| 1 | 5 (GND) | → | **GND** | Common ground first, always. |
-| 2 | 1 | → | **RX** | Listening is harmless whatever the pin is. Do Steps 6–7: if text appears, position 1 is the NAS's TX. If nothing appears, move this wire to position 4 and try again — now 4 is TX. |
-| 3 | the other data pin (4 or 1) | → | **TX** | Only now, once you know which pin was TX, connect the adapter's TX to the remaining data pin — that is the NAS's RX. Typing in the terminal now works. |
+| 1 | 4 (GND) | → | **GND** | Common ground first, always. |
+| 2 | 1 | → | **RX** | Listening is harmless whatever the pin is. Do Steps 6–7: if text appears, position 1 is the NAS's TX. If nothing appears, move this wire to position 5 and try again — now 5 is TX. |
+| 3 | the other data pin (5 or 1) | → | **TX** | Only now, once you know which pin was TX, connect the adapter's TX to the remaining data pin — that is the NAS's RX. Typing in the terminal now works. |
 
 Yes, the NAS's TX goes to the adapter's RX and vice versa — each side *transmits* into the other's *receive*. Doing it in this order means the only wrong move possible is "no text yet", never a damaged part.
 
@@ -333,7 +333,7 @@ That is the NAS talking to you. **You have a working serial console.** Continue 
 | Random symbols / `���` | Wrong speed | Make sure you passed `-b 115200`. |
 | `Permission denied` on `/dev/ttyUSB0` | Not in the `dialout` group | Step 2's `usermod`, then log out and back in — or prefix with `sudo` for now. |
 | `/dev/ttyUSB0` missing | Adapter not detected | Different USB port/cable; some adapters need a driver on macOS/Windows. |
-| Text, but you can't type | Adapter TX not on the NAS's RX yet | Finish wiring step 3: adapter TX to whichever data pin (1 or 4) did *not* give you text. |
+| Text, but you can't type | Adapter TX not on the NAS's RX yet | Finish wiring step 3: adapter TX to whichever data pin (1 or 5) did *not* give you text. |
 | Autoboot counts down from 0 and you can't interrupt | Normal on stock firmware (`enaAutoRecovery`) | Nothing wrong. [Phase 7](#phase-7-flash-kernel-to-nand) explains how to get a prompt anyway. |
 
 ---
@@ -346,7 +346,7 @@ The serial console is **required** for U-Boot interaction — everything from he
 
 **Never done this? Follow the [mini-tutorial](#mini-tutorial-your-first-serial-connection) first.** It covers the shopping list, opening the case, the photos, the pinout and what you should see — with no electronics background assumed.
 
-For reference: connector JP1 is a 5-position 2.54 mm header with pin 2 removed as a key (square pad = position 1 on the underside). Position 5 is GND, positions 1 and 4 are the data lines, **position 3 is 3.3 V and must stay unconnected**. Full diagram and the safe wiring order in [Step 5 of the tutorial](#step-5--connect-three-wires).
+For reference: connector JP1 is a 5-position 2.54 mm header with pin 2 removed as a key (square pad = position 1 on the underside). Position 4 is GND, positions 1 and 5 are the data lines, **position 3 is 3.3 V and must stay unconnected**. Full diagram and the safe wiring order in [Step 5 of the tutorial](#step-5--connect-three-wires).
 
 ```bash
 picocom -b 115200 /dev/ttyUSB0
