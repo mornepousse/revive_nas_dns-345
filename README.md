@@ -69,14 +69,15 @@ After this guide, you'll have:
 | **NAND** | 128 MB (Hynix, 128KB erase blocks, 2048-byte pages) |
 | **SATA** | Marvell 88SX7042 PCI-Express (4 ports) |
 | **Ethernet** | 2x Gigabit (Marvell mv643xx) |
-| **UART** | JP1, 5-position 2.54 mm header, pin 2 removed as a key; VCC on position 3, 115200 8N1, 3.3V TTL |
+| **UART** | JP1, five 2.54 mm solder pads (no connector fitted on a stock board), VCC on position 3, 115200 8N1, 3.3V TTL |
 | **I2C** | LM75 temperature sensor at 0x48 |
 
 ## Prerequisites
 
 **Hardware you need:**
 - USB-TTL serial adapter (3.3V, e.g. CH340, CP2102, FT232RL)
-- 3 female-to-female jumper wires, 2.54 mm / 0.1" (the ordinary "Dupont" kind — TX, RX, GND)
+- 3 short solid-core wires (≈ 28 AWG) to solder onto the board, plus a soldering iron and thin solder — JP1 has no connector on a stock board
+- 3 female-to-female jumper wires, 2.54 mm / 0.1" (the ordinary "Dupont" kind) to reach the adapter
 - A computer on the same LAN (Linux, macOS, or Windows with WSL)
 
 **Software you need on the host PC:**
@@ -215,12 +216,14 @@ This U-Boot has **no** `loady`, `loadb`, or `loadx` commands. You cannot transfe
 
 > *What are we doing?* Before any operating system runs, the NAS's boot loader talks over a tiny 3-wire serial port on the main board. Plug a cheap USB adapter onto it and your PC becomes the NAS's keyboard and screen. That is the only way to install anything on this machine.
 
-### Step 1 — Gather the parts (≈ 5 €)
+### Step 1 — Gather the parts (≈ 5 €, plus a soldering iron if you have none)
 
 | Part | What to search for | Notes |
 |---|---|---|
 | USB-to-TTL serial adapter | *"CH340 USB TTL 3.3V"* or *"CP2102 USB TTL"* | **Must be 3.3 V.** If it has a jumper or switch for 3.3 V / 5 V, set it to 3.3 V now and never touch it again. |
-| 3 female-to-female jumper wires | *"Dupont jumper wires female female"* | 2.54 mm / 0.1" — the ordinary kind. That is exactly the pitch of the NAS connector. |
+| Soldering iron + thin solder | *"soldering iron kit"*, *"0.6mm solder"* | Any cheap temperature-controlled iron is fine. JP1 has **no connector on a stock board** — just five solder pads — so three wires have to be soldered on. It is the easiest soldering job there is; Step 5 walks through it. |
+| 3 short solid-core wires | *"28 AWG solid core wire"* | 10 cm each. Solid core, not stranded: it pushes into a molten pad and stays put. |
+| 3 female-to-female jumper wires | *"Dupont jumper wires female female"* | 2.54 mm / 0.1" — the ordinary kind. To go from your soldered wires (or a header, see Step 5) to the adapter. |
 | Small Phillips screwdriver | — | For the six case screws. |
 
 Do **not** buy anything labelled RS-232, DB9, or "serial cable" for PCs — that is a different, higher-voltage standard and will destroy the port.
@@ -255,7 +258,7 @@ sudo usermod -aG dialout "$USER"
 
 ### Step 4 — Find the serial connector
 
-Look just below the large Marvell chip, next to a small cylindrical capacitor: a small white connector, labelled JP1. It has five positions but only **four pins** — the second slot is empty on purpose, so nothing can be plugged in backwards.
+Look just below the large Marvell chip, next to a small cylindrical capacitor, for the label **JP1**. On a stock board there is **no connector there** — only five solder pads in a row, four of them filled with a small bump of solder. (The white connector you see in our photos is one we soldered on ourselves; yours will look like bare pads until Step 5.) The second position is empty on purpose: it is a key, so a plug can never go on backwards.
 
 <img src="images/d-link_dns-345_hardware_centre_top.jpg" alt="DNS-345 main board seen from above, serial connector circled" width="620">
 
@@ -269,9 +272,26 @@ If you ever doubt which end is which, the underside settles it. Position 1 has a
 
 *Top and bottom board views: Hardware Centre review, annotation added. Full-board-in-cage photo: Le Comptoir du Hardware. The cable photo and the back panel are ours.*
 
-✅ **You should see** one lone pin on one side of the empty slot (position 1) and three pins together on the other (positions 3, 4, 5).
+✅ **You should see** one lone pad on one side of the empty slot (position 1) and three pads together on the other (positions 3, 4, 5).
 
-### Step 5 — Connect three wires
+### Step 5 — Solder three wires onto JP1
+
+Why the pads are already full of solder: the board is *wave-soldered* at the factory — the whole underside passes over a bath of molten solder — so every unused hole comes out filled. That is good news: you are not filling anything, just parking a wire in solder that is already there.
+
+You need wires on **positions 1, 4 and 5** only. Leave position 3 (3.3 V) alone.
+
+1. Strip 3 mm from the end of each wire and *tin* it: touch the iron and a little solder to the bare copper so it turns silver.
+2. Flip the board to find the **square pad** — that is position 1. Count from it: 1, gap, 3, 4, 5.
+3. Hold the iron on pad 1 until its solder bump goes shiny and liquid (a second or two). Push the tinned wire into the liquid, hold it still, lift the iron. Done — the joint sets in a second.
+4. Same for pads 4 and 5.
+5. **Check for bridges.** Pads 3, 4 and 5 sit 2.54 mm apart; a stray blob joining 3 to 4 would put 3.3 V on your ground. Look with your phone camera zoomed in: each pad must be its own island.
+6. Tape the three wires down to the board a couple of centimetres away (electrical or Kapton tape). A tug should pull on the tape, never on the pad — pads on boards this old lift off easily.
+
+✅ **You should see** three wires standing in three separate solder joints, nothing on position 3, nothing on position 2.
+
+*Tidier alternative, if you are comfortable soldering:* solder a 5-pin 2.54 mm header strip into the five holes instead (pull pin 2 out of the plastic with pliers first, to keep the key). Then ordinary Dupont jumpers push straight on, which is what our photos show. It is more work — you have to clear or heat five filled holes at once and keep the strip straight — so three wires is the beginner route.
+
+### Step 6 — Connect the wires to the adapter
 
 ```
 JP1 on DNS-345 PCB — 5 positions, 2.54 mm, pin 2 removed
@@ -296,12 +316,12 @@ How this was read off the board: positions 1 and 5 each go through a small serie
 | # | NAS position | → | Adapter pin | Why this order |
 |---|---|---|---|---|
 | 1 | 4 (GND) | → | **GND** | Common ground first, always. |
-| 2 | 1 | → | **RX** | Listening is harmless whatever the pin is. Do Steps 6–7: if text appears, position 1 is the NAS's TX. If nothing appears, move this wire to position 5 and try again — now 5 is TX. |
+| 2 | 1 | → | **RX** | Listening is harmless whatever the pin is. Do Steps 7–8: if text appears, position 1 is the NAS's TX. If nothing appears, move this wire to position 5 and try again — now 5 is TX. |
 | 3 | the other data pin (5 or 1) | → | **TX** | Only now, once you know which pin was TX, connect the adapter's TX to the remaining data pin — that is the NAS's RX. Typing in the terminal now works. |
 
 Yes, the NAS's TX goes to the adapter's RX and vice versa — each side *transmits* into the other's *receive*. Doing it in this order means the only wrong move possible is "no text yet", never a damaged part.
 
-### Step 6 — Open the terminal *before* powering on
+### Step 7 — Open the terminal *before* powering on
 
 The interesting text appears in the first two seconds after power-up, so start listening first:
 
@@ -311,7 +331,7 @@ picocom -b 115200 /dev/ttyUSB0      # use the device name from Step 2
 
 ✅ **You should see** `Terminal ready`. (To quit picocom later: press `Ctrl+A`, then `Ctrl+X`.)
 
-### Step 7 — Power on and watch
+### Step 8 — Power on and watch
 
 Plug the NAS power cable back in and press the power button.
 
@@ -346,7 +366,7 @@ The serial console is **required** for U-Boot interaction — everything from he
 
 **Never done this? Follow the [mini-tutorial](#mini-tutorial-your-first-serial-connection) first.** It covers the shopping list, opening the case, the photos, the pinout and what you should see — with no electronics background assumed.
 
-For reference: connector JP1 is a 5-position 2.54 mm header with pin 2 removed as a key (square pad = position 1 on the underside). Position 4 is GND, positions 1 and 5 are the data lines, **position 3 is 3.3 V and must stay unconnected**. Full diagram and the safe wiring order in [Step 5 of the tutorial](#step-5--connect-three-wires).
+For reference: JP1 is five 2.54 mm solder pads with no connector fitted on a stock board (square pad = position 1 on the underside; position 2 is empty). Position 4 is GND, positions 1 and 5 are the data lines, **position 3 is 3.3 V and must stay unconnected**. Soldering in [Step 5](#step-5--solder-three-wires-onto-jp1), safe wiring order in [Step 6](#step-6--connect-the-wires-to-the-adapter).
 
 ```bash
 picocom -b 115200 /dev/ttyUSB0
