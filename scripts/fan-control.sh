@@ -23,6 +23,50 @@ PWM_OFF=0
 PWM_LOW=127
 PWM_HIGH=255
 
+# fan_target <pwm courant> <temp carte> <temp soc> -> pwm cible
+#
+# Fonction pure, testée par test/unit_fan_control.sh.
+#
+# L'hystérésis s'exprime en zones mortes attachées à l'état COURANT : on ne
+# quitte un palier qu'une fois descendu de HYST sous le seuil qui l'a déclenché.
+# Sans ça, monter à T_HIGH puis redescendre d'un degré suffit à repasser au
+# palier du dessous, et la moindre oscillation d'un degré fait battre le
+# ventilateur — c'est ce qui produisait des centaines de transitions par jour.
+fan_target() {
+    _cur="$1"; _tb="$2"; _ts="$3"
+    # PWM courant inconnu (premier tour) : on raisonne comme depuis l'arrêt,
+    # sinon la zone morte basse démarre le ventilateur sur une carte froide.
+    case "$_cur" in '') _cur=$PWM_OFF ;; esac
+
+    if   [ "$_tb" -ge "$T_HIGH" ]; then
+        _target=$PWM_HIGH
+    elif [ "$_cur" = "$PWM_HIGH" ] && [ "$_tb" -ge "$(( T_HIGH - HYST ))" ]; then
+        _target=$PWM_HIGH                     # zone morte haute : on reste à fond
+    elif [ "$_tb" -ge "$T_LOW" ]; then
+        _target=$PWM_LOW
+    elif [ "$_cur" != "$PWM_OFF" ] && [ "$_tb" -ge "$(( T_LOW - HYST ))" ]; then
+        _target=$PWM_LOW                      # zone morte basse : on reste en petite vitesse
+    else
+        _target=$PWM_OFF
+    fi
+
+    # Garde-fou SoC : jamais en dessous de LOW si le die chauffe, plein régime
+    # s'il est brûlant. Jamais le pilote normal — ce capteur est à 55-60 °C au repos.
+    if [ "$_ts" -ge "$SOC_HIGH" ]; then
+        _target=$PWM_HIGH
+    elif [ "$_ts" -ge "$SOC_LOW" ] && [ "$_target" -lt "$PWM_LOW" ]; then
+        _target=$PWM_LOW
+    fi
+
+    echo "$_target"
+}
+
+# Sourcé par les tests unitaires : on s'arrête ici, avant toute découverte
+# matérielle, pour n'exposer que fan_target().
+if [ "${FAN_CONTROL_LIB:-0}" = "1" ]; then
+    return 0 2>/dev/null || exit 0
+fi
+
 find_hwmon() {
     for h in /sys/class/hwmon/hwmon*; do
         [ -r "$h/name" ] || continue
@@ -60,26 +104,8 @@ while :; do
     tb=$(read_temp "$LM75")
     ts=$(read_temp "${SOC:-$LM75}")
 
-    # lm75-driven target with hysteresis on step-down
-    case "$CUR_PWM" in
-        "$PWM_HIGH") step_low=$(( T_HIGH - HYST )); step_off=$(( T_LOW - HYST )) ;;
-        "$PWM_LOW")  step_low=$T_HIGH;              step_off=$(( T_LOW - HYST )) ;;
-        *)           step_low=$T_LOW;               step_off=$T_LOW ;;
-    esac
+    target=$(fan_target "$CUR_PWM" "$tb" "$ts")
 
-    if   [ "$tb" -ge "$T_HIGH" ];   then target=$PWM_HIGH
-    elif [ "$tb" -ge "$step_low" ]; then target=$PWM_LOW
-    elif [ "$tb" -lt "$step_off" ]; then target=$PWM_OFF
-    else                                target=$CUR_PWM
-    fi
-
-    # SoC safety override: never below LOW if SoC hot, force HIGH if very hot
-    if [ "$ts" -ge "$SOC_HIGH" ]; then
-        target=$PWM_HIGH
-    elif [ "$ts" -ge "$SOC_LOW" ] && [ "${target:-0}" -lt "$PWM_LOW" ]; then
-        target=$PWM_LOW
-    fi
-
-    [ -n "$target" ] && set_pwm "$target"
+    set_pwm "$target"
     sleep "$INTERVAL"
 done

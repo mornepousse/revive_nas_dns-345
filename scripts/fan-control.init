@@ -12,6 +12,15 @@ DAEMON=/usr/local/bin/fan-control.sh
 PIDFILE=/var/run/fan-control.pid
 LOGFILE=/var/log/fan-control.log
 
+# Seuils réglables sans toucher au démon : T_LOW, T_HIGH, HYST, SOC_LOW,
+# SOC_HIGH, INTERVAL. Ex. « T_HIGH=50 » pour une machine qui vit près de 46 °C.
+# set -a : le démon est lancé dans un sous-shell, sans export il ne verrait rien.
+if [ -r /etc/default/fan-control ]; then
+    set -a
+    . /etc/default/fan-control
+    set +a
+fi
+
 case "$1" in
     start)
         echo "Starting fan-control..."

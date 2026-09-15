@@ -1,0 +1,13 @@
+# Seuils du controleur de ventilateur (voir scripts/fan-control.sh).
+#
+# Seuils d'ORIGINE conserves. Mesure du 2026-08-10 : a 6000 RPM la carte se
+# stabilise a 50 C, il n'y a aucune marge de refroidissement a recuperer.
+# Mesure : 16 min a 6000 RPM continus, carte bloquee a 50-51 C sans decrue. Le
+# refroidissement est sature. T_HIGH=50 garerait la carte pile sur la frontiere,
+# soit le decor d une nouvelle oscillation.
+#
+# Le battement ne venait pas des seuils mais de l'hysteresis. HYST elargi a 4
+# donne une zone morte 42-46 C, suffisante pour tuer l'oscillation.
+T_LOW=38
+T_HIGH=46
+HYST=4
