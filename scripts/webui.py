@@ -205,10 +205,20 @@ def get_smart():
 
 
 def get_services():
+    # pidof matche le nom de l'exécutable. Le dashboard tourne sous "python3"
+    # (python3 /usr/local/bin/nas-dashboard.py), donc `pidof nas-dashboard` ne
+    # rend jamais rien et la ligne se déclarait HS en permanence : on cherche
+    # celui-là sur la ligne de commande complète.
     services = []
-    for name, check in [("SSH", "sshd"), ("Samba", "smbd"), ("NTP", "ntpd"), ("SMART", "smartd"), ("Dashboard", "nas-dashboard")]:
-        pid = run(f"pidof {check}")
-        services.append({"name": name, "running": bool(pid)})
+    checks = [
+        ("SSH", "pidof sshd"),
+        ("Samba", "pidof smbd"),
+        ("NTP", "pidof ntpd"),
+        ("SMART", "pidof smartd"),
+        ("Dashboard", "pgrep -f nas-dashboard[.]py"),
+    ]
+    for name, cmd in checks:
+        services.append({"name": name, "running": bool(run(cmd))})
     return services
 
 
