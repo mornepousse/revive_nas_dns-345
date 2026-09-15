@@ -1,0 +1,37 @@
+# Généré par /tripwire:init — la CI n'appelle que scripts/check.sh (invariant).
+# Étages : fast sur PR (boucle courte), full sur la branche par défaut + nightly.
+#
+# Toolchain : test/host_checks.sh échoue net si shellcheck ou dtc manque (un outil
+# absent ne doit pas passer pour un vert). shellcheck est préinstallé sur les
+# runners ubuntu-latest, dtc non — les deux sont installés explicitement pour ne
+# pas dépendre du contenu de l'image.
+#
+# NB : test/run_tests.sh n'est jamais lancé ici. C'est la recette d'acceptation
+# matérielle du NAS (RAID, SMART, Samba, ping passerelle) : elle est garantie
+# rouge sur un runner et n'a de sens que sur le DNS-345.
+name: tripwire
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+  schedule:
+    - cron: "0 3 * * *"   # nightly full — supprimer si inutile
+
+jobs:
+  check-fast:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y shellcheck device-tree-compiler
+      - run: ./scripts/check.sh --fast
+
+  check-full:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y shellcheck device-tree-compiler
+      - run: ./scripts/check.sh

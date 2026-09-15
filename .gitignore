@@ -8,3 +8,6 @@ uboot/*.bin
 
 # Debian rootfs tarball (~250MB)
 backup/
+
+# Python bytecode
+__pycache__/

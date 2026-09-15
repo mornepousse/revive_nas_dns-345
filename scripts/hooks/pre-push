@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Hook git pre-push nas_dns-345 — bloque le push si le tripwire est rouge.
+# Activation: ./scripts/install-hooks.sh  (git config core.hooksPath scripts/hooks)
+# Échappatoire WIP: git push --no-verify
+set -uo pipefail
+REPO="$(git rev-parse --show-toplevel)"
+echo "[pre-push] check.sh complet…"
+export TRIPWIRE_RATCHET_STRICT=1   # au push, une baisse du nombre de tests bloque
+"$REPO/scripts/check.sh"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  echo "[pre-push] ROUGE — push bloqué. (git push --no-verify pour forcer un WIP)" >&2
+fi
+exit "$rc"

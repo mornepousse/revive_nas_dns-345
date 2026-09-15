@@ -1,0 +1,3 @@
+# Écarts assumés au scaffold tripwire standard. TSV : fichier<TAB>motif<TAB>pourquoi.
+# check.sh devient ROUGE si un motif déclaré disparaît de son fichier hôte.
+scripts/check.sh	shellcheck disable=SC2254	porte 6 (shellcheck -S warning) couvre check.sh lui-meme ; SC2254 y est un faux positif, le motif de MODULE_FAST doit rester un glob. Ajout local au template v0.11.0.
