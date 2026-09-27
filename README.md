@@ -69,7 +69,7 @@ After this guide, you'll have:
 | **NAND** | 128 MB (Hynix, 128KB erase blocks, 2048-byte pages) |
 | **SATA** | Marvell 88SX7042 PCI-Express (4 ports) |
 | **Ethernet** | 2x Gigabit (Marvell mv643xx) |
-| **UART** | JP1, five 2.54 mm solder pads (no connector fitted on a stock board), VCC on position 3, 115200 8N1, 3.3V TTL |
+| **UART** | JP1, five 2.54 mm plated through-holes (unpopulated, wave-filled with solder), VCC on position 3, 115200 8N1, 3.3V TTL |
 | **I2C** | LM75 temperature sensor at 0x48 |
 
 ## Prerequisites
@@ -237,8 +237,9 @@ This U-Boot has **no** `loady`, `loadb`, or `loadx` commands. You cannot transfe
 | Part | What to search for | Notes |
 |---|---|---|
 | USB-to-TTL serial adapter | *"CH340 USB TTL 3.3V"* or *"CP2102 USB TTL"* | **Must be 3.3 V.** If it has a jumper or switch for 3.3 V / 5 V, set it to 3.3 V now and never touch it again. |
-| Soldering iron + thin solder | *"soldering iron kit"*, *"0.6mm solder"* | Any cheap temperature-controlled iron is fine. JP1 has **no connector on a stock board** — just five solder pads — so three wires have to be soldered on. It is the easiest soldering job there is; Step 5 walks through it. |
-| 3 short solid-core wires | *"28 AWG solid core wire"* | 10 cm each. Solid core, not stranded: it pushes into a molten pad and stays put. |
+| Soldering iron + thin solder | *"soldering iron kit"*, *"0.6mm solder"* | Any cheap temperature-controlled iron is fine. JP1 is **unpopulated on a stock board** — five plated holes, filled with solder at the factory — so something has to be soldered in. Step 5 walks through it. |
+| 3 short solid-core wires | *"28 AWG solid core wire"* | 10 cm each. Solid core, not stranded: it goes into a molten hole and stays put. |
+| *Optional:* desoldering braid or a solder sucker | *"desoldering wick 2mm"* | Only if you want to clear the holes and fit a proper header instead of wires — see the alternative at the end of Step 5. |
 | 3 female-to-female jumper wires | *"Dupont jumper wires female female"* | 2.54 mm / 0.1" — the ordinary kind. To go from your soldered wires (or a header, see Step 5) to the adapter. |
 | Small Phillips screwdriver | — | For the six case screws. |
 
@@ -274,7 +275,7 @@ sudo usermod -aG dialout "$USER"
 
 ### Step 4 — Find the serial connector
 
-Look just below the large Marvell chip, next to a small cylindrical capacitor, for the label **JP1**. On a stock board there is **no connector there** — only five solder pads in a row, four of them filled with a small bump of solder. (The white connector you see in our photos is one we soldered on ourselves; yours will look like bare pads until Step 5.) The second position is empty on purpose: it is a key, so a plug can never go on backwards.
+Look just below the large Marvell chip, next to a small cylindrical capacitor, for the label **JP1**. On a stock board the connector is **not fitted** — the footprint is there, five plated through-holes in a row, and the factory wave-soldering has filled four of them with solder. (The white connector in our photos is one we soldered in ourselves; yours will look like a row of filled holes until Step 5.) The second position has no hole at all: it is a key, so a plug can never go on backwards.
 
 <img src="images/d-link_dns-345_hardware_centre_top.jpg" alt="DNS-345 main board seen from above, serial connector circled" width="620">
 
@@ -282,30 +283,36 @@ Look just below the large Marvell chip, next to a small cylindrical capacitor, f
 
 <img src="images/pcb_in_case.jpg" alt="Serial cable plugged into the connector, board still in the case" width="620">
 
-If you ever doubt which end is which, the underside settles it. Position 1 has a **square** solder pad — that is how board makers mark pin 1 — then a gap where position 2 would be, then three round pads:
+If you ever doubt which end is which, the underside settles it. The copper ring around hole 1 is **square** — that is how board makers mark pin 1 — then a gap where position 2 would be, then three round ones:
 
-<img src="images/d-link_dns-345_hardware_centre_bottom.jpg" alt="Underside of the board: square pad, gap, three round pads" width="620">
+<img src="images/d-link_dns-345_hardware_centre_bottom.jpg" alt="Underside of the board: square ring, gap, three round holes" width="620">
 
 *Top and bottom board views: Hardware Centre review, annotation added. Full-board-in-cage photo: Le Comptoir du Hardware. The cable photo and the back panel are ours.*
 
-✅ **You should see** one lone pad on one side of the empty slot (position 1) and three pads together on the other (positions 3, 4, 5).
+✅ **You should see** one lone hole on one side of the empty slot (position 1) and three holes together on the other (positions 3, 4, 5).
 
 ### Step 5 — Solder three wires onto JP1
 
-Why the pads are already full of solder: the board is *wave-soldered* at the factory — the whole underside passes over a bath of molten solder — so every unused hole comes out filled. That is good news: you are not filling anything, just parking a wire in solder that is already there.
+These are **plated through-holes**, not surface pads: real holes with copper plating down the barrel, meant to take a connector. The board went over a solder wave at the factory, so the barrels came out full. You have two ways in.
 
-You need wires on **positions 1, 4 and 5** only. Leave position 3 (3.3 V) alone.
+You need positions **1, 4 and 5** only. Leave position 3 (3.3 V) alone.
+
+**Route A — push a wire into each hole (simplest).**
 
 1. Strip 3 mm from the end of each wire and *tin* it: touch the iron and a little solder to the bare copper so it turns silver.
-2. Flip the board to find the **square pad** — that is position 1. Count from it: 1, gap, 3, 4, 5.
-3. Hold the iron on pad 1 until its solder bump goes shiny and liquid (a second or two). Push the tinned wire into the liquid, hold it still, lift the iron. Done — the joint sets in a second.
-4. Same for pads 4 and 5.
-5. **Check for bridges.** Pads 3, 4 and 5 sit 2.54 mm apart; a stray blob joining 3 to 4 would put 3.3 V on your ground. Look with your phone camera zoomed in: each pad must be its own island.
-6. Tape the three wires down to the board a couple of centimetres away (electrical or Kapton tape). A tug should pull on the tape, never on the pad — pads on boards this old lift off easily.
+2. Flip the board to find the **square ring** — that is position 1. Count from it: 1, gap, 3, 4, 5.
+3. Hold the iron against hole 1 until the solder in it goes shiny and liquid (a second or two). Push the tinned wire in, hold it still, lift the iron away and keep holding for another second. The joint sets hard as it dulls.
+4. Same for 4 and 5.
+5. **Check for bridges.** 3, 4 and 5 sit 2.54 mm apart; a stray blob joining 3 to 4 would put 3.3 V onto your ground. Zoom in with your phone camera: each one must be its own island.
+6. Tape the wires down to the board a couple of centimetres along (electrical or Kapton tape). A tug should pull on the tape, never on the joint — plating on boards this old tears out.
 
-✅ **You should see** three wires standing in three separate solder joints, nothing on position 3, nothing on position 2.
+**Route B — clear the holes and fit a header (what our photos show).**
 
-*Tidier alternative, if you are comfortable soldering:* solder a 5-pin 2.54 mm header strip into the five holes instead (pull pin 2 out of the plastic with pliers first, to keep the key). Then ordinary Dupont jumpers push straight on, which is what our photos show. It is more work — you have to clear or heat five filled holes at once and keep the strip straight — so three wires is the beginner route.
+Lay desoldering braid over a hole, press the iron on top, and the braid wicks the solder out; a solder sucker does the same job. Once the five holes are open, push in a 5-pin 2.54 mm header strip — pull pin 2 out of its plastic with pliers first, to keep the key — and solder it from the underside. Ordinary Dupont jumpers then push straight on, and you can unplug the adapter without touching the board again.
+
+More steps, and clearing a wave-filled barrel takes a bit of patience, but the result is mechanically solid and reusable. Worth it if you expect to come back to the console.
+
+✅ **You should see** either three wires standing in three separate joints, or a clean header — and in both cases nothing on position 3 and nothing bridging it to position 4.
 
 ### Step 6 — Connect the wires to the adapter
 
@@ -382,7 +389,7 @@ The serial console is **required** for U-Boot interaction — everything from he
 
 **Never done this? Follow the [mini-tutorial](#mini-tutorial-your-first-serial-connection) first.** It covers the shopping list, opening the case, the photos, the pinout and what you should see — with no electronics background assumed.
 
-For reference: JP1 is five 2.54 mm solder pads with no connector fitted on a stock board (square pad = position 1 on the underside; position 2 is empty). Position 4 is GND, positions 1 and 5 are the data lines, **position 3 is 3.3 V and must stay unconnected**. Soldering in [Step 5](#step-5--solder-three-wires-onto-jp1), safe wiring order in [Step 6](#step-6--connect-the-wires-to-the-adapter).
+For reference: JP1 is a five-position 2.54 mm footprint of plated through-holes, unpopulated and wave-filled on a stock board (square ring = position 1 on the underside; position 2 has no hole). Position 4 is GND, positions 1 and 5 are the data lines, **position 3 is 3.3 V and must stay unconnected**. Soldering in [Step 5](#step-5--solder-three-wires-onto-jp1), safe wiring order in [Step 6](#step-6--connect-the-wires-to-the-adapter).
 
 ```bash
 picocom -b 115200 /dev/ttyUSB0
@@ -1386,7 +1393,7 @@ The Doozan kernel 6.5.7 works but is not the latest. Building a newer kernel req
 │   ├── pcb_in_case.jpg                # Serial connector with cable plugged, board in chassis
 │   ├── dns_345_pcb_full.jpg           # Board in its cage, serial connector circled (Le Comptoir du Hardware)
 │   ├── d-link_dns-345_hardware_centre_top.jpg     # Board top view, connector circled (Hardware Centre)
-│   └── d-link_dns-345_hardware_centre_bottom.jpg  # Board underside: square pad = pin 1 (Hardware Centre)
+│   └── d-link_dns-345_hardware_centre_bottom.jpg  # Board underside: square ring = pin 1 (Hardware Centre)
 ├── test/
 │   ├── run_tests.sh                   # Hardware acceptance suite — runs ON the NAS
 │   ├── host_checks.sh                 # Host-side gates (lint, syntax, DTS, doc drift)
