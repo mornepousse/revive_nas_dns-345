@@ -165,6 +165,22 @@ sdd       sdd1 (full)        RAID 5 member
 md0       RAID 5 (2.7 TB)    Data volume (ext4, mounted /srv/data)
 ```
 
+**Physical bays do not map to device letters in order.** The four SATA ports are
+wired to the bays out of sequence, so bay 1 is not `/dev/sda`. One machine
+running 6.5.7 reported:
+
+| Physical bay | SATA port | Linux device |
+|---|---|---|
+| Bay 1 | ata3 | `/dev/sdc` |
+| Bay 2 | ata4 | `/dev/sdd` |
+| Bay 3 | ata1 | `/dev/sda` |
+| Bay 4 | ata2 | `/dev/sdb` |
+
+The bay → port wiring is fixed by the board, but the port → letter step is
+kernel probe order and is not a promise. Treat this table as a starting point
+for *"which drawer do I pull out"*, never as something to put in a config file.
+Confirm with `lsblk -o NAME,SIZE,SERIAL` and match on serial numbers.
+
 If you add the optional USB backup rootfs (below), it appears as a further device — but do not assume which letter.
 
 > **Note:** Device names may change between boots — see [Key Discovery #4](#4-disk-ordering-changes-with-new-kernel). Identify devices with `lsblk`, and **never hardcode `/dev/sdX` in a config file**. Under the 2.6.31 stock kernel the fourth RAID member enumerated as `sde`; under 6.5.7 it is `sdd`. A leftover `/dev/sde` line in `/etc/smartd.conf` is what silently kept SMART monitoring from ever starting on this build.
@@ -423,6 +439,34 @@ ls -la /mnt/HD/HD_b2/nand_backup/
 scp root@<nas-ip>:/mnt/HD/HD_b2/nand_backup/mtd0_uboot.bin .
 ```
 
+##### If your dump is not exactly 1048576 bytes
+
+`nanddump` on the stock 2009 firmware interleaves the **OOB** (out-of-band) area into the file: 64 spare bytes after every 2048-byte page. A 1 MiB partition then comes out at **1081344 bytes**, and `patch_uboot.py` refuses it:
+
+```
+ERROR: Expected 1048576 bytes (1MB mtd0 dump), got 1081344
+```
+
+The dump is fine — it just has metadata mixed in. Re-dump without it if your `nanddump` supports the flag:
+
+```bash
+nanddump --omitoob -f mtd0_uboot.bin /dev/mtd0
+```
+
+Otherwise strip it on the host PC, keeping the raw dump untouched as your recovery copy:
+
+```bash
+python3 - <<'EOF'
+PAGE, OOB = 2048, 64
+data = open('mtd0_uboot.bin', 'rb').read()
+out = b''.join(data[i:i+PAGE] for i in range(0, len(data), PAGE + OOB))
+open('mtd0_uboot_data.bin', 'wb').write(out[:1048576])
+EOF
+ls -l mtd0_uboot_data.bin      # must be exactly 1048576
+```
+
+Patch `mtd0_uboot_data.bin`. **Keep the original raw dump** — it is the only thing that can restore the factory bootloader, OOB and all.
+
 > If `nanddump` is not available on the stock firmware, you can install it from the Debian rootfs later, or use `dd if=/dev/mtd0ro of=mtd0.bin` as a fallback (less reliable — doesn't handle bad blocks).
 
 ### Phase 4: Build Kernel Image (Host PC)
@@ -628,6 +672,11 @@ update-rc.d ssh defaults
 ntpdate pool.ntp.org
 # Or manually: date -s "2026-03-16 12:00:00"
 
+# Remember the time across reboots. Without this every boot restarts at
+# 1970 until NTP answers, which makes `last`, wtmp and log timestamps
+# useless for working out when something happened.
+apt install -y fake-hwclock
+
 # Update package lists
 apt update
 
@@ -688,20 +737,42 @@ Copy the patched binary to the TFTP directory:
 cp uboot_debian.bin /tmp/tftp/
 ```
 
+First, get the checksum of the image **on the host PC** — you will compare against it twice:
+
+```bash
+python3 -c "import zlib,sys; print('%08x' % zlib.crc32(open(sys.argv[1],'rb').read()))" uboot_debian.bin
+```
+
 From the U-Boot prompt on the NAS:
 ```
 setenv ipaddr <NAS_IP>
 setenv serverip <HOST_IP>
 tftpboot 0x2000000 uboot_debian.bin
 
+# Check 1 — did TFTP deliver the file intact?
+crc32 0x2000000 0x100000
+# Must equal the value from the PC. If not: re-run tftpboot. Nothing has
+# been erased yet, so a mismatch here costs you nothing.
+
 # ⚠️  THIS ERASES THE BOOTLOADER — if power is lost here, the NAS is bricked
 # Make sure you have the mtd0 backup and kwboot ready (see Brick Recovery)
 nand erase 0x0 0x100000
 nand write 0x2000000 0x0 0x100000
 
-# Reboot — should boot Debian automatically
+# Check 2 — read it back out of NAND and checksum what is actually stored
+nand read 0x3000000 0x0 0x100000
+crc32 0x3000000 0x100000
+# Must equal the same value again.
+
+# ONLY if both checks matched:
 reset
 ```
+
+> **Do not skip check 2, and do not `reset` on a mismatch.** While you are still
+> at this prompt, U-Boot is running from RAM and a bad write is repairable —
+> just `nand erase` and `nand write` again. The moment you reset with a corrupt
+> image in NAND, the only way back is [kwboot over serial](#brick-recovery),
+> which is a 7-minute transfer and needs the case open again.
 
 #### Verify Automatic Boot
 
@@ -723,6 +794,13 @@ OK
 
 Starting kernel ...
 ```
+
+Then do the test that actually matters: **pull the power cable, wait five seconds, plug it back in and press the power button.**
+
+`reset` restarts U-Boot but leaves the SoC powered; a genuine cold start is the
+only way to exercise the boot ROM path and `enaAutoRecovery` from scratch. A
+patch that survives `reset` but not a cold boot would look fine here and fail the
+first time the power flickers.
 
 The NAS now boots Debian automatically on every power cycle.
 
@@ -1329,6 +1407,7 @@ The Doozan kernel 6.5.7 works but is not the latest. Building a newer kernel req
 - [CVE-2024-3273](https://nvd.nist.gov/vuln/detail/CVE-2024-3273) — Initial access vector for firmware replacement
 - Le Comptoir du Hardware — board-in-cage photo (`images/dns_345_pcb_full.jpg`)
 - Hardware Centre — top and underside board views (`images/d-link_dns-345_hardware_centre_top.jpg`, `images/d-link_dns-345_hardware_centre_bottom.jpg`)
+- [@Pilgrim1886](https://github.com/Pilgrim1886) — walked the whole procedure as a first-time solderer and wrote up what was missing: the OOB-padded NAND dump, CRC32 verification around the U-Boot flash, and the bay-to-device mapping
 
 ## License
 
